@@ -9,7 +9,6 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -18,97 +17,105 @@ logger = logging.getLogger(__name__)
 class VideoFeatureEngineer:
     """
     Feature engineering for YouTube video engagement analysis.
-    
+
     Transforms raw video metadata into features that capture:
     - Temporal patterns (upload timing, age)
     - Content characteristics (duration, text features)
     - Engagement metrics (ratios, scores)
     - Channel-level features
     """
-    
+
     def __init__(self, collection_date: Optional[datetime] = None) -> None:
         """
         Initialize feature engineer.
-        
+
         Args:
             collection_date: Reference date for calculating recency features.
                            Defaults to current datetime if not provided.
         """
         self.collection_date = collection_date or datetime.now()
-        logger.info(f"Feature engineer initialized with collection date: {self.collection_date}")
-    
+        logger.info(
+            f"Feature engineer initialized with collection date: {self.collection_date}"
+        )
+
     def fit_transform(self, videos_df: pd.DataFrame) -> pd.DataFrame:
         """
         Transform raw video metadata into engineered features.
-        
+
         Args:
             videos_df: DataFrame with raw video metadata
-            
+
         Returns:
             DataFrame with engineered features
-            
+
         Raises:
             ValueError: If required columns are missing
         """
         required_cols = [
-            'video_id', 'title', 'description', 'publish_date',
-            'duration_sec', 'view_count', 'like_count', 'comment_count'
+            "video_id",
+            "title",
+            "description",
+            "publish_date",
+            "duration_sec",
+            "view_count",
+            "like_count",
+            "comment_count",
         ]
         missing_cols = [col for col in required_cols if col not in videos_df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
-        
+
         logger.info(f"Starting feature engineering on {len(videos_df)} videos")
-        
+
         df = videos_df.copy()
-        
+
         # Ensure datetime type
-        df['publish_date'] = pd.to_datetime(df['publish_date'])
-        
+        df["publish_date"] = pd.to_datetime(df["publish_date"])
+
         # Clean basic fields
         df = self._clean_data(df)
-        
+
         # Create feature groups
         df = self._create_temporal_features(df)
         df = self._create_text_features(df)
         df = self._create_engagement_features(df)
         df = self._create_channel_features(df)
-        
+
         logger.info(f"Feature engineering complete: {df.shape[1]} features")
-        
+
         return df
-    
+
     def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Clean and prepare raw data.
-        
+
         Args:
             df: Raw video DataFrame
-            
+
         Returns:
             Cleaned DataFrame
         """
         logger.debug("Cleaning data")
-        
+
         # Remove videos with 0 views (likely private/unlisted)
         initial_count = len(df)
-        df = df[df['view_count'] > 0].copy()
+        df = df[df["view_count"] > 0].copy()
         removed = initial_count - len(df)
         if removed > 0:
             logger.info(f"Removed {removed} videos with 0 views")
-        
+
         # Handle missing statistics
-        df['comment_count'] = df['comment_count'].fillna(0).astype(int)
-        df['like_count'] = df['like_count'].fillna(0).astype(int)
-        df['description'] = df['description'].fillna('')
-        df['tags'] = df['tags'].fillna('') if 'tags' in df.columns else ''
-        
+        df["comment_count"] = df["comment_count"].fillna(0).astype(int)
+        df["like_count"] = df["like_count"].fillna(0).astype(int)
+        df["description"] = df["description"].fillna("")
+        df["tags"] = df["tags"].fillna("") if "tags" in df.columns else ""
+
         return df
-    
+
     def _create_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Create temporal features from publish date.
-        
+
         Features created:
         - days_since_publish: Age of video in days
         - publish_hour: Hour of day (0-23)
@@ -116,45 +123,43 @@ class VideoFeatureEngineer:
         - publish_month, publish_year: Month and year numbers
         - is_evening_upload: Binary (17-21h)
         - is_weekday: Binary (Mon-Fri)
-        
+
         Args:
             df: DataFrame with publish_date column
-            
+
         Returns:
             DataFrame with added temporal features
         """
         logger.debug("Creating temporal features")
-        
-        df['days_since_publish'] = (
-            self.collection_date - df['publish_date']
-        ).dt.days
-        
-        df['publish_hour'] = df['publish_date'].dt.hour
-        df['publish_day_of_week'] = df['publish_date'].dt.day_name()
-        df['publish_month'] = df['publish_date'].dt.month
-        df['publish_year'] = df['publish_date'].dt.year
-        
+
+        df["days_since_publish"] = (self.collection_date - df["publish_date"]).dt.days
+
+        df["publish_hour"] = df["publish_date"].dt.hour
+        df["publish_day_of_week"] = df["publish_date"].dt.day_name()
+        df["publish_month"] = df["publish_date"].dt.month
+        df["publish_year"] = df["publish_date"].dt.year
+
         # Evening upload (5-9 PM, optimal time per research)
-        df['is_evening_upload'] = (
-            df['publish_hour'].isin([17, 18, 19, 20, 21])
+        df["is_evening_upload"] = (
+            df["publish_hour"].isin([17, 18, 19, 20, 21])
         ).astype(int)
-        
+
         # Weekday upload
-        df['is_weekday'] = (
-            ~df['publish_day_of_week'].isin(['Saturday', 'Sunday'])
+        df["is_weekday"] = (
+            ~df["publish_day_of_week"].isin(["Saturday", "Sunday"])
         ).astype(int)
-        
+
         logger.debug(
             f"Temporal features: evening={df['is_evening_upload'].sum()}, "
             f"weekday={df['is_weekday'].sum()}"
         )
-        
+
         return df
-    
+
     def _create_text_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Create features from title and description text.
-        
+
         Features created:
         - title_length: Character count
         - description_length: Character count
@@ -162,236 +167,292 @@ class VideoFeatureEngineer:
         - tag_count: Number of tags
         - subject: Detected subject category
         - is_exam_focused: Binary indicator for exam-related content
-        
+
         Args:
             df: DataFrame with title and description columns
-            
+
         Returns:
             DataFrame with added text features
         """
         logger.debug("Creating text features")
-        
-        df['title_length'] = df['title'].str.len()
-        df['description_length'] = df['description'].str.len()
-        df['title_word_count'] = df['title'].str.split().str.len()
-        
+
+        df["title_length"] = df["title"].str.len()
+        df["description_length"] = df["description"].str.len()
+        df["title_word_count"] = df["title"].str.split().str.len()
+
         # Tag count
-        if 'tags' in df.columns:
-            df['tag_count'] = df['tags'].str.split(',').str.len()
-            df.loc[df['tags'] == '', 'tag_count'] = 0
+        if "tags" in df.columns:
+            df["tag_count"] = df["tags"].str.split(",").str.len()
+            df.loc[df["tags"] == "", "tag_count"] = 0
         else:
-            df['tag_count'] = 0
-        
+            df["tag_count"] = 0
+
         # Subject detection
-        df['subject'] = df.apply(self._extract_subject, axis=1)
-        
+        df["subject"] = df.apply(self._extract_subject, axis=1)
+
         # Exam-focused content detection
         exam_keywords = [
-            'bac', 'exam', 'examen', '2024', '2025', 'revision',
-            'exercise', 'تمرين', 'امتحان', 'باك'
+            "bac",
+            "exam",
+            "examen",
+            "2024",
+            "2025",
+            "revision",
+            "exercise",
+            "تمرين",
+            "امتحان",
+            "باك",
         ]
-        pattern = '|'.join(exam_keywords)
-        df['is_exam_focused'] = (
-            df['title'].str.lower().str.contains(pattern, na=False)
+        pattern = "|".join(exam_keywords)
+        df["is_exam_focused"] = (
+            df["title"].str.lower().str.contains(pattern, na=False)
         ).astype(int)
-        
+
         logger.debug(
             f"Text features: subjects={df['subject'].value_counts().to_dict()}, "
             f"exam_focused={df['is_exam_focused'].sum()}"
         )
-        
+
         return df
-    
+
     @staticmethod
     def _extract_subject(row: pd.Series) -> str:
         """
         Classify video by subject based on title and description keywords.
-        
+
         Args:
             row: DataFrame row with 'title' and 'description' columns
-            
+
         Returns:
             Subject category string
         """
-        text = (str(row['title']) + ' ' + str(row['description'])).lower()
-        
+        text = (str(row["title"]) + " " + str(row["description"])).lower()
+
         # Subject keyword mappings
         subjects = {
-            'Math': ['math', 'رياضيات', 'calcul', 'integral', 'derivative', 
-                    'equation', 'algebra', 'geometry'],
-            'Physics': ['physics', 'فيزياء', 'force', 'energy', 'motion', 
-                       'newton', 'électricité', 'mécanique'],
-            'Science': ['science', 'علوم', 'chemistry', 'كيمياء', 'biology', 
-                       'أحياء', 'chimie', 'biologie', 'svt'],
-            'Arabic': ['arabic', 'عربية', 'literature', 'poem', 'grammar', 
-                      'littérature', 'langue'],
-            'Philosophy': ['philosophy', 'فلسفة', 'philosophie'],
-            'French': ['français', 'french', 'francais'],
-            'English': ['english', 'anglais'],
+            "Math": [
+                "math",
+                "رياضيات",
+                "calcul",
+                "integral",
+                "derivative",
+                "equation",
+                "algebra",
+                "geometry",
+            ],
+            "Physics": [
+                "physics",
+                "فيزياء",
+                "force",
+                "energy",
+                "motion",
+                "newton",
+                "électricité",
+                "mécanique",
+            ],
+            "Science": [
+                "science",
+                "علوم",
+                "chemistry",
+                "كيمياء",
+                "biology",
+                "أحياء",
+                "chimie",
+                "biologie",
+                "svt",
+            ],
+            "Arabic": [
+                "arabic",
+                "عربية",
+                "literature",
+                "poem",
+                "grammar",
+                "littérature",
+                "langue",
+            ],
+            "Philosophy": ["philosophy", "فلسفة", "philosophie"],
+            "French": ["français", "french", "francais"],
+            "English": ["english", "anglais"],
         }
-        
+
         for subject, keywords in subjects.items():
             if any(keyword in text for keyword in keywords):
                 return subject
-        
-        return 'General'
-    
+
+        return "General"
+
     def _create_engagement_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Create engagement metrics and ratios.
-        
+
         Features created:
         - like_ratio: likes / views
         - comment_ratio: comments / views
         - engagement_score: weighted combination
         - engagement_category: Low/Medium/High classification
-        
+
         Args:
             df: DataFrame with view_count, like_count, comment_count
-            
+
         Returns:
             DataFrame with added engagement features
         """
         logger.debug("Creating engagement features")
-        
+
         # Avoid division by zero
-        safe_views = df['view_count'].replace(0, 1)
-        
-        df['like_ratio'] = df['like_count'] / safe_views
-        df['comment_ratio'] = df['comment_count'] / safe_views
-        
+        safe_views = df["view_count"].replace(0, 1)
+
+        df["like_ratio"] = df["like_count"] / safe_views
+        df["comment_ratio"] = df["comment_count"] / safe_views
+
         # Engagement score: comments weighted 2x (deeper engagement)
-        df['engagement_score'] = (
-            df['like_count'] + 2 * df['comment_count']
+        df["engagement_score"] = (
+            df["like_count"] + 2 * df["comment_count"]
         ) / safe_views
-        
+
         # Engagement category (based on percentiles)
-        df['engagement_category'] = self._categorize_engagement(
-            df['engagement_score']
-        )
-        
+        df["engagement_category"] = self._categorize_engagement(df["engagement_score"])
+
         logger.debug(
             f"Engagement distribution: "
             f"{df['engagement_category'].value_counts().to_dict()}"
         )
-        
+
         return df
-    
+
     @staticmethod
     def _categorize_engagement(scores: pd.Series) -> pd.Series:
         """
         Categorize engagement scores into Low/Medium/High.
-        
+
         Args:
             scores: Series of engagement scores
-            
+
         Returns:
             Series of category labels
         """
         percentile_33 = scores.quantile(0.33)
         percentile_67 = scores.quantile(0.67)
-        
+
         def categorize(score: float) -> str:
             if score >= percentile_67:
-                return 'High'
+                return "High"
             elif score >= percentile_33:
-                return 'Medium'
+                return "Medium"
             else:
-                return 'Low'
-        
+                return "Low"
+
         return scores.apply(categorize)
-    
+
     def _create_channel_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Create channel-level aggregated features.
-        
+
         Features created:
         - channel_video_count: Number of videos in dataset from this channel
         - channel_avg_views: Average views for channel
         - channel_avg_engagement: Average engagement ratio for channel
         - channel_age_days: Days since oldest video from channel
-        
+
         Args:
             df: DataFrame with channel_id
-            
+
         Returns:
             DataFrame with added channel features
         """
         logger.debug("Creating channel features")
-        
-        if 'channel_id' not in df.columns:
+
+        if "channel_id" not in df.columns:
             logger.warning("channel_id column missing, skipping channel features")
             return df
-        
+
         # Channel statistics
-        channel_stats = df.groupby('channel_id').agg({
-            'video_id': 'count',
-            'view_count': 'mean',
-            'engagement_score': 'mean',
-            'publish_date': 'min'
-        }).rename(columns={
-            'video_id': 'channel_video_count',
-            'view_count': 'channel_avg_views',
-            'engagement_score': 'channel_avg_engagement'
-        })
-        
-        # Channel age (days since first video)
-        channel_stats['channel_age_days'] = (
-            self.collection_date - channel_stats['publish_date']
-        ).dt.days
-        channel_stats = channel_stats.drop('publish_date', axis=1)
-        
-        # Merge back to original dataframe
-        df = df.merge(channel_stats, on='channel_id', how='left')
-        
-        logger.debug(
-            f"Channel features: {df['channel_id'].nunique()} unique channels"
+        channel_stats = (
+            df.groupby("channel_id")
+            .agg(
+                {
+                    "video_id": "count",
+                    "view_count": "mean",
+                    "engagement_score": "mean",
+                    "publish_date": "min",
+                }
+            )
+            .rename(
+                columns={
+                    "video_id": "channel_video_count",
+                    "view_count": "channel_avg_views",
+                    "engagement_score": "channel_avg_engagement",
+                }
+            )
         )
-        
+
+        # Channel age (days since first video)
+        channel_stats["channel_age_days"] = (
+            self.collection_date - channel_stats["publish_date"]
+        ).dt.days
+        channel_stats = channel_stats.drop("publish_date", axis=1)
+
+        # Merge back to original dataframe
+        df = df.merge(channel_stats, on="channel_id", how="left")
+
+        logger.debug(f"Channel features: {df['channel_id'].nunique()} unique channels")
+
         return df
-    
+
     def select_features(
-        self,
-        df: pd.DataFrame,
-        include_target: bool = True
+        self, df: pd.DataFrame, include_target: bool = True
     ) -> pd.DataFrame:
         """
         Select final feature set for modeling.
-        
+
         Args:
             df: DataFrame with all engineered features
             include_target: Whether to include target variable (engagement_category)
-            
+
         Returns:
             DataFrame with selected features
         """
         feature_columns = [
             # Identifiers
-            'video_id', 'title', 'channel_id', 'channel_title',
-            
+            "video_id",
+            "title",
+            "channel_id",
+            "channel_title",
             # Temporal
-            'publish_date', 'days_since_publish', 'publish_hour',
-            'publish_day_of_week', 'is_evening_upload', 'is_weekday',
-            
+            "publish_date",
+            "days_since_publish",
+            "publish_hour",
+            "publish_day_of_week",
+            "is_evening_upload",
+            "is_weekday",
             # Content
-            'duration_sec', 'title_length', 'description_length',
-            'title_word_count', 'tag_count', 'subject', 'is_exam_focused',
-            
+            "duration_sec",
+            "title_length",
+            "description_length",
+            "title_word_count",
+            "tag_count",
+            "subject",
+            "is_exam_focused",
             # Engagement (features)
-            'view_count', 'like_count', 'comment_count',
-            'like_ratio', 'comment_ratio', 'engagement_score',
-            
+            "view_count",
+            "like_count",
+            "comment_count",
+            "like_ratio",
+            "comment_ratio",
+            "engagement_score",
             # Channel
-            'channel_video_count', 'channel_avg_views',
-            'channel_avg_engagement', 'channel_age_days',
+            "channel_video_count",
+            "channel_avg_views",
+            "channel_avg_engagement",
+            "channel_age_days",
         ]
-        
+
         if include_target:
-            feature_columns.append('engagement_category')
-        
+            feature_columns.append("engagement_category")
+
         # Only include columns that exist
         available_columns = [col for col in feature_columns if col in df.columns]
-        
+
         logger.info(f"Selected {len(available_columns)} features for modeling")
-        
+
         return df[available_columns].copy()
