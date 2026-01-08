@@ -95,30 +95,81 @@ UCzzzzzz,Science DZ,Biology,Chemistry
 
 ### 2.2 Running Data Collection
 
-**Implementation: `src/data/collect.py`**
+**Three Collection Scripts Available:**
 
-The collection script uses the `YouTubeCollector` class to:
-1. Load channels from CSV
-2. For each channel, enumerate all videos via `search.list` API
-3. Fetch detailed metadata via `videos.list` API
-4. Track quota usage to avoid exceeding limits
-5. Save results to CSV with automatic rate limiting
+#### Option 1: Basic Collection (`src/data/collect.py`)
+Standard video metadata collection.
 
-**Basic Collection:**
 ```bash
+# Full collection
 uv run python -m src.data.collect \
     --channels data/raw/channels.csv \
-    --output data/raw/videos_metadata.csv \
-    --max-videos 50  # Limit per channel for testing
+    --output data/raw/videos_metadata.csv
+
+# Test with limited videos
+uv run python -m src.data.collect \
+    --channels data/raw/channels.csv \
+    --max-videos 50
 ```
 
-**Full Collection:**
+#### Option 2: Enhanced Collection (`src/data/collect_enhanced.py`)
+Collects additional insights: channel statistics, comment samples.
+
 ```bash
-# Collect all videos (respects quota limit)
-uv run python -m src.data.collect \
+# Enhanced collection with channel stats
+uv run python -m src.data.collect_enhanced \
     --channels data/raw/channels.csv \
     --output data/raw/videos_metadata.csv \
-    --max-quota 8000  # Reserve buffer
+    --channel-stats-output data/raw/channel_statistics.csv
+
+# Also collect comment samples (uses more quota)
+uv run python -m src.data.collect_enhanced \
+    --channels data/raw/channels.csv \
+    --collect-comments \
+    --comments-output data/raw/comments_sample.csv
+```
+
+**What Enhanced Collection Provides:**
+- ✅ Channel subscriber counts and total views
+- ✅ Channel creation dates and descriptions
+- ✅ Sample comments from top videos (optional)
+- ✅ All standard video metadata
+
+#### Option 3: Incremental Collection (`src/data/collect_incremental.py`)
+**⭐ Best for adding new channels without overwriting existing data.**
+
+```bash
+# Add new channels (automatically detects and merges)
+uv run python -m src.data.collect_incremental \
+    --channels data/raw/channels.csv \
+    --output data/raw/videos_metadata.csv
+
+# Force re-collection of all channels
+uv run python -m src.data.collect_incremental \
+    --channels data/raw/channels.csv \
+    --force-update
+```
+
+**How Incremental Collection Works:**
+1. ✅ Loads existing `videos_metadata.csv`
+2. ✅ Creates automatic backup with timestamp
+3. ✅ Identifies only NEW channels (not in existing data)
+4. ✅ Collects data from new channels only
+5. ✅ Merges with existing data (removes duplicates)
+6. ✅ Saves updated dataset
+
+**Example Workflow:**
+```bash
+# Day 1: Collect from 2 channels
+uv run python -m src.data.collect \
+    --channels data/raw/channels.csv
+# Result: 318 videos from 2 channels
+
+# Day 2: Add 3 more channels to channels.csv
+# Then run incremental collection
+uv run python -m src.data.collect_incremental \
+    --channels data/raw/channels.csv
+# Result: Only collects from 3 new channels, merges with existing 318 videos
 ```
 
 **Under the Hood:**
@@ -161,10 +212,24 @@ tail -f data_collection.log
 grep "quota" data_collection.log
 ```
 
+**Important: YouTube API Limitations**
+
+The YouTube Search API has some limitations:
+- ⚠️ **Maximum ~500 most recent videos** per channel can be retrieved
+- ⚠️ Private/unlisted videos are not returned
+- ⚠️ Very old videos (5+ years) might not be indexed
+- ⚠️ YouTube Shorts may not always appear
+
+If a channel has 200+ videos but you only got 125:
+- This is normal API behavior
+- You got the most recent/relevant public videos
+- For complete channel history, you'd need YouTube Data API v3 with channel upload playlist
+
 **Troubleshooting:**
 - **API errors**: Check API key in `.env` file
 - **Quota exceeded**: Wait until next day (resets midnight PST) or reduce `--max-videos`
 - **Empty results**: Verify channel IDs are correct
+- **Missing videos**: This is expected - API returns most recent ~500 videos per channel
 
 ---
 

@@ -1,0 +1,8 @@
+2026-01-08 23:36:05,194 - __main__ - INFO - ============================================================
+2026-01-08 23:36:05,194 - __main__ - INFO - Feature Engineering Pipeline
+2026-01-08 23:36:05,194 - __main__ - INFO - ============================================================
+2026-01-08 23:36:05,194 - __main__ - INFO - Loading raw data from data\raw\videos_metadata.csv
+2026-01-08 23:36:05,264 - __main__ - INFO - Loaded 318 videos with 14 columns
+2026-01-08 23:36:05,264 - src.features.engineer - INFO - Feature engineer initialized with collection date: 2026-01-08 23:36:05.264584
+2026-01-08 23:36:05,265 - src.features.engineer - INFO - Starting feature engineering on 318 videos
+2026-01-08 23:36:05,299 - __main__ - ERROR - Error during feature engineering: Cannot subtract tz-naive and tz-aware datetime-like objects

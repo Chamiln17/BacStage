@@ -75,7 +75,8 @@ SIC/
 ├── .env.example         # Environment variables template
 ├── pyproject.toml       # Project configuration and dependencies
 ├── IMPLEMENTATION_GUIDE.md  # Detailed implementation guide
-└── README.md            # This file
+├── QUICK_REFERENCE.md       # Quick command reference
+└── README.md                # This file
 ```
 
 ## Features
@@ -431,7 +432,16 @@ This project was refactored from a monolithic script (`extract_raw_data.py`) to 
 4. **Model Development**: Build predictive models in `src/models/`
 5. **Deployment**: Package models for production use
 
-**For detailed step-by-step guide**, see `IMPLEMENTATION_GUIDE.md`
+## Documentation
+
+- **📖 README.md** (this file) - Complete project overview and architecture
+- **📚 IMPLEMENTATION_GUIDE.md** - Step-by-step implementation walkthrough
+- **⚡ QUICK_REFERENCE.md** - Quick commands and common workflows
+- **🔧 TROUBLESHOOTING.md** - Common errors and solutions
+- **📁 data/README.md** - Data directory structure and tips
+- **📓 notebooks/README.md** - Notebook usage guidelines
+
+**Note:** All logs are saved to `logs/` directory for better organization
 
 ## License
 

@@ -113,8 +113,13 @@ class YouTubeCollector:
                 for item in response.get("items", []):
                     if "videoId" in item["id"]:
                         video_ids.append(item["id"]["videoId"])
+                        # Enforce limit even within a single page
+                        if max_videos and len(video_ids) >= max_videos:
+                            break
 
                 # Handle pagination
+                if max_videos and len(video_ids) >= max_videos:
+                    break
                 next_page_token = response.get("nextPageToken")
                 if not next_page_token:
                     break
@@ -130,7 +135,8 @@ class YouTubeCollector:
                 f"Retrieved {len(video_ids)} video IDs from channel "
                 f"({request_count} API requests)"
             )
-            return video_ids
+            # Safety net: ensure we never return more than requested
+            return video_ids[:max_videos] if max_videos else video_ids
 
         except HttpError as e:
             logger.error(f"HTTP error fetching videos from channel {channel_id}: {e}")

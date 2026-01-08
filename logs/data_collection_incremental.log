@@ -1,0 +1,31 @@
+2026-01-08 23:59:35,116 - __main__ - INFO - ============================================================
+2026-01-08 23:59:35,116 - __main__ - INFO - Incremental YouTube Data Collection
+2026-01-08 23:59:35,116 - __main__ - INFO - ============================================================
+2026-01-08 23:59:35,134 - __main__ - ERROR - Error loading existing data: object of type 'int' has no len()
+2026-01-08 23:59:35,148 - __main__ - INFO - All channels are new (no existing data)
+2026-01-08 23:59:35,154 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - YouTube API client initialized successfully
+2026-01-08 23:59:35,161 - __main__ - INFO - 
+Collecting data from 3 channels...
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - Starting collection from 3 channels
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - Max videos per channel: All
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - Quota limit: 8000 units
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - [1/3] Processing: Katfi Charif Zina
+2026-01-08 23:59:35,161 - src.data.youtube_collector - INFO - Fetching videos from channel UCuJqXbrblfKeO9fa82a7KHQ
+2026-01-08 23:59:37,861 - src.data.youtube_collector - INFO - Retrieved 272 video IDs from channel (6 API requests)
+2026-01-08 23:59:37,861 - src.data.youtube_collector - INFO - Fetching metadata for 272 videos
+2026-01-09 00:00:11,238 - src.data.youtube_collector - INFO - Collected 272 videos from Katfi Charif Zina (Total quota: 872/8000)
+2026-01-09 00:00:11,239 - src.data.youtube_collector - INFO - [2/3] Processing: Mr.Mansouri
+2026-01-09 00:00:11,239 - src.data.youtube_collector - INFO - Fetching videos from channel UC1OxQheqDv1l0l7sj3HHqQQ
+2026-01-09 00:00:12,716 - src.data.youtube_collector - INFO - Retrieved 193 video IDs from channel (4 API requests)
+2026-01-09 00:00:12,718 - src.data.youtube_collector - INFO - Fetching metadata for 193 videos
+2026-01-09 00:00:36,102 - src.data.youtube_collector - INFO - Collected 193 videos from Mr.Mansouri (Total quota: 1465/8000)
+2026-01-09 00:00:36,102 - src.data.youtube_collector - INFO - Fetching videos from channel UCuJqXbrblfKeO9fa82a7KHQ
+2026-01-09 00:00:38,328 - src.data.youtube_collector - INFO - Retrieved 225 video IDs from channel (5 API requests)
+2026-01-09 00:00:38,328 - src.data.youtube_collector - INFO - Fetching metadata for 225 videos
+2026-01-09 00:01:06,135 - src.data.youtube_collector - INFO - Collection complete: 690 videos from 2 channels
+2026-01-09 00:01:06,135 - src.data.youtube_collector - INFO - Total API quota used: 2190
+2026-01-09 00:01:06,135 - __main__ - INFO - 
+============================================================
+2026-01-09 00:01:06,135 - __main__ - INFO - MERGING DATA
+2026-01-09 00:01:06,141 - __main__ - INFO - ============================================================

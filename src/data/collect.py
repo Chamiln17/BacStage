@@ -22,10 +22,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("data_collection.log"),
+        logging.FileHandler("logs/data_collection.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
+
+# Fix console encoding for Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 def get_api_key() -> str:
