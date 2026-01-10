@@ -103,13 +103,13 @@ def merge_data(
     if mode == "append":
         logger.info(f"Append mode: keeping all {len(combined)} records")
         if "snapshot_date" in combined.columns:
-            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"])
+            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"], format="ISO8601")
             
     elif mode == "dedupe":
         initial_count = len(combined)
         
         if "snapshot_date" in combined.columns:
-            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"])
+            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"], format="ISO8601")
             combined = combined.sort_values("snapshot_date", ascending=False)
             combined = combined.drop_duplicates(subset=["video_id"], keep="first")
             combined = combined.sort_values("snapshot_date", ascending=True)
