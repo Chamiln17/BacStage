@@ -1,180 +1,84 @@
 # Quick Reference Guide
 
-## Adding New Channels Without Overwriting
+## Unified CLI Commands
 
-### Method 1: Using Incremental Collection (Recommended)
+All pipeline operations use a single entry point: `run_pipeline.py`
 
-1. **Add new channels** to `data/raw/channels.csv`:
-```csv
-channel_id,channel_name,subjects
-UCuJqXbrblfKeO9fa82a7KHQ,Katfi Charif Zina,Natural Sciences
-UC1OxQheqDv1l0l7sj3HHqQQ,Mr.Mansouri,French
-UCnewchannel123,New Channel,Math  ← Add this line
-```
+### Full Pipeline (Recommended)
 
-2. **Run incremental collection**:
-```bash
-uv run python -m src.data.collect_incremental \
-    --channels data/raw/channels.csv
-```
-
-3. **What happens**:
-   - ✅ Creates backup: `videos_metadata_backup_YYYYMMDD_HHMMSS.csv`
-   - ✅ Detects NEW channel (UCnewchannel123)
-   - ✅ Collects only from new channel
-   - ✅ Merges with existing 318 videos
-   - ✅ Removes any duplicates
-   - ✅ Saves updated dataset
-
-### Method 2: Manual Merge
-
-If you want more control:
+Run everything in one command: collect, engineer features, and analyze.
 
 ```bash
-# Collect from new channels to separate file
-uv run python -m src.data.collect \
-    --channels data/raw/new_channels.csv \
-    --output data/raw/new_videos.csv
-
-# Then merge manually with pandas
+uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
 ```
 
-## Getting More Insights
-
-### Collect Channel Statistics
+### Individual Commands
 
 ```bash
-uv run python -m src.data.collect_enhanced \
-    --channels data/raw/channels.csv \
-    --channel-stats-output data/raw/channel_statistics.csv
-```
+# Collect data (discovery + enrichment + channel stats)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv
 
-**Provides:**
-- Subscriber counts
-- Total video counts
-- Total channel views
-- Channel creation dates
-- Channel descriptions
+# Build ML features from collected data
+uv run python run_pipeline.py engineer
 
-### Collect Comment Samples
-
-```bash
-uv run python -m src.data.collect_enhanced \
-    --channels data/raw/channels.csv \
-    --collect-comments \
-    --comments-output data/raw/comments_sample.csv
-```
-
-**Provides:**
-- Top 10 comments from 50 most-viewed videos
-- Comment text, author, likes
-- Useful for sentiment analysis
-
-**Note**: Comments use more quota (~100 units per request)
-
-## Understanding Video Counts
-
-**Your current collection:**
-- Natural Sciences: 125 videos (not all videos from channel)
-- Mr. Mansouri: 193 videos
-- Total: 318 videos
-
-**Why not all videos?**
-- YouTube API returns ~500 most recent videos max
-- Private/unlisted videos excluded
-- Very old videos may not be indexed
-
-**To check channel's actual video count:**
-```bash
-# Check channel statistics
-uv run python -m src.data.collect_enhanced \
-    --channels data/raw/channels.csv \
-    --channel-stats-output data/raw/channel_stats.csv
-
-# View results
-cat data/raw/channel_stats.csv
+# Quick analysis of collected data
+uv run python run_pipeline.py analyze
 ```
 
 ## Common Workflows
 
 ### Workflow 1: Initial Collection
+
 ```bash
-# 1. Prepare channels.csv with 2-5 channels
-# 2. Collect data
-uv run python -m src.data.collect --channels data/raw/channels.csv
+# 1. Prepare channels.csv with your channels
+# 2. Run full pipeline
+uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
 
-# 3. Engineer features
-uv run python -m src.features.build_features \
-    --input data/raw/videos_metadata.csv \
-    --output data/processed/videos_engineered.csv
-
-# 4. Analyze
+# 3. Explore data in notebook
 jupyter notebook notebooks/01_data_exploration.ipynb
 ```
 
-### Workflow 2: Adding More Channels
+### Workflow 2: Daily Updates
+
 ```bash
-# 1. Add new channels to channels.csv
-# 2. Run incremental collection (auto-merges)
-uv run python -m src.data.collect_incremental --channels data/raw/channels.csv
-
-# 3. Re-engineer features with new data
-uv run python -m src.features.build_features \
-    --input data/raw/videos_metadata.csv \
-    --output data/processed/videos_engineered.csv
-
-# 4. Re-analyze with expanded dataset
+# Just refresh stats for known videos (skip discovery)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-discover
 ```
 
-### Workflow 3: Getting Deeper Insights
-```bash
-# 1. Collect enhanced data
-uv run python -m src.data.collect_enhanced \
-    --channels data/raw/channels.csv \
-    --collect-comments \
-    --channel-stats-output data/raw/channel_stats.csv \
-    --comments-output data/raw/comments.csv
+### Workflow 3: Adding New Channels
 
-# 2. Analyze channel statistics
-# 3. Perform sentiment analysis on comments
-# 4. Compare channel performance
+```bash
+# 1. Add new channels to data/raw/channels.csv
+# 2. Run collection (will discover new videos automatically)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv
+
+# 3. Re-engineer features
+uv run python run_pipeline.py engineer
 ```
 
-## Quick Commands
+## Collection Options
 
-### Check Current Data
 ```bash
-# Count videos
-wc -l data/raw/videos_metadata.csv
-# Or PowerShell:
-Get-Content data/raw/videos_metadata.csv | Measure-Object -Line
+# Limit videos per channel
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --max-videos 50
 
-# View sample
-head data/raw/videos_metadata.csv
+# Set quota limit
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --max-quota 5000
 
-# Check channels collected
-uv run python -c "import pandas as pd; df = pd.read_csv('data/raw/videos_metadata.csv'); print(df['channel_title'].value_counts())"
-```
+# Skip discovery (only update known videos)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-discover
 
-### Backup Data
-```bash
-# Manual backup
-cp data/raw/videos_metadata.csv data/raw/videos_metadata_backup.csv
+# Skip channel statistics
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-channel-stats
 
-# Automatic backup (incremental collection does this)
-uv run python -m src.data.collect_incremental --channels data/raw/channels.csv
-```
+# Keep only latest snapshot per video (smaller file)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --mode dedupe
 
-### View Logs
-```bash
-# View collection log
-tail -50 data_collection.log
+# Include comment samples (uses more quota)
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --collect-comments
 
-# View enhanced collection log
-tail -50 data_collection_enhanced.log
-
-# View incremental collection log
-tail -50 data_collection_incremental.log
+# Skip backup creation
+uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-backup
 ```
 
 ## File Locations
@@ -182,58 +86,60 @@ tail -50 data_collection_incremental.log
 ```
 data/
 ├── raw/
-│   ├── channels.csv              ← Your channel list
-│   ├── videos_metadata.csv       ← Main data file
-│   ├── videos_metadata_backup_*.csv  ← Auto backups
-│   ├── channel_statistics.csv    ← Channel stats (optional)
-│   └── comments_sample.csv       ← Comments (optional)
+│   ├── channels.csv              <- Your channel list (input)
+│   ├── videos_metadata.csv       <- Video data with snapshots
+│   ├── video_registry.csv        <- Known video IDs
+│   ├── channel_statistics.csv    <- Channel stats
+│   └── comments_sample.csv       <- Comments (optional)
 └── processed/
-    └── videos_engineered.csv     ← ML-ready features
+    └── videos_engineered.csv     <- ML-ready features
 ```
 
-## Next Steps After Collection
+## Quick Analysis
 
-1. ✅ **Feature Engineering**
-   ```bash
-   uv run python -m src.features.build_features \
-       --input data/raw/videos_metadata.csv \
-       --output data/processed/videos_engineered.csv
-   ```
+```bash
+# Get quick stats on your data
+uv run python run_pipeline.py analyze
+```
 
-2. ✅ **Exploratory Analysis**
-   ```bash
-   jupyter notebook notebooks/01_data_exploration.ipynb
-   ```
+Output shows:
+- Total videos and unique count
+- Videos per channel
+- Date range
+- Snapshot count
+- View statistics
+- Registry status
+- Feature engineering status
 
-3. ✅ **Identify Insights**
-   - What video lengths perform best?
-   - Optimal upload times?
-   - Subject-specific patterns?
-   - Exam content impact?
+## Quota Efficiency
+
+The pipeline is optimized for quota efficiency:
+
+| Operation | Quota Cost |
+|-----------|-----------|
+| Discover 50 videos | 1 unit |
+| Enrich 50 videos | 1 unit |
+| Channel stats | 1 unit per channel |
+| Comments | ~1 unit per video |
+
+**Example**: 3 channels with 500 total videos = ~15 quota units
 
 ## Troubleshooting
 
-**Problem**: "No new channels to collect"
-- **Cause**: All channels in CSV already in dataset
-- **Solution**: Either add different channels or use `--force-update`
+**"No videos to enrich"**
+- Run with discovery: remove `--no-discover` flag
 
-**Problem**: "Only got 125 videos but channel has 300"
-- **Cause**: YouTube API limitation (~500 videos max)
-- **Solution**: This is expected - you have the most recent videos
+**"Quota exceeded"**
+- Wait until next day or use `--max-quota` to limit usage
 
-**Problem**: "Quota exceeded"
-- **Cause**: Used 10,000 daily API units
-- **Solution**: Wait until next day or use `--max-quota` to limit usage
+**"Only got X videos but channel has Y"**
+- YouTube API returns most recent ~500 videos max
+- Private/unlisted videos are excluded
 
-**Problem**: "Want to collect more data from same channel"
-- **Cause**: Already have channel in dataset
-- **Solution**: Use `--force-update` flag to re-collect everything
+## Tips
 
-## Quick Tips
-
-💡 **Always use incremental collection** when adding channels
-💡 **Check quota usage** in logs before large collections
-💡 **Start small** (5 channels) then expand
-💡 **Collect comments** for deeper insights (but uses more quota)
-💡 **Backup important datasets** before re-running collection
-💡 **Run feature engineering** after each data update
+- Use `full-pipeline` for first-time setup
+- Use `collect --no-discover` for daily stat refreshes
+- Use `--mode dedupe` if you don't need time-series tracking
+- Check `analyze` output to verify collection worked
+- Back up your data before major re-collections

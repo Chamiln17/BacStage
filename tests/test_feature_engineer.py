@@ -1,6 +1,6 @@
 """Tests for feature engineering module."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 import pytest
@@ -15,10 +15,11 @@ class TestVideoFeatureEngineer:
         """Test initialization with default collection date."""
         engineer = VideoFeatureEngineer()
         assert isinstance(engineer.collection_date, datetime)
+        assert engineer.collection_date.tzinfo is not None  # Should be tz-aware
 
     def test_init_custom_date(self) -> None:
         """Test initialization with custom collection date."""
-        custom_date = datetime(2024, 6, 1)
+        custom_date = datetime(2024, 6, 1, tzinfo=timezone.utc)
         engineer = VideoFeatureEngineer(collection_date=custom_date)
         assert engineer.collection_date == custom_date
 
@@ -32,7 +33,7 @@ class TestVideoFeatureEngineer:
 
     def test_fit_transform_success(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test successful feature engineering transformation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1))
+        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
         result = engineer.fit_transform(sample_raw_videos)
 
         # Check that new features were created
@@ -51,7 +52,7 @@ class TestVideoFeatureEngineer:
 
     def test_temporal_features(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test temporal feature creation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1))
+        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
         result = engineer._create_temporal_features(sample_raw_videos.copy())
 
         # Check evening upload detection
@@ -108,8 +109,12 @@ class TestVideoFeatureEngineer:
 
     def test_channel_features(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test channel-level feature aggregation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1))
-        result = engineer._create_channel_features(sample_raw_videos.copy())
+        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
+        
+        # Need to create engagement features first (channel features depend on engagement_score)
+        df = sample_raw_videos.copy()
+        df = engineer._create_engagement_features(df)
+        result = engineer._create_channel_features(df)
 
         # Check channel features exist
         assert "channel_video_count" in result.columns
@@ -128,6 +133,7 @@ class TestVideoFeatureEngineer:
                 "view_count": [1000, 0],
                 "like_count": [10, 0],
                 "comment_count": [5, 0],
+                "description": ["Test description", ""],
             }
         )
 
@@ -135,7 +141,7 @@ class TestVideoFeatureEngineer:
         result = engineer._clean_data(df)
 
         assert len(result) == 1
-        assert result.loc[0, "video_id"] == "vid1"
+        assert result.iloc[0]["video_id"] == "vid1"
 
     def test_select_features(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test feature selection for modeling."""

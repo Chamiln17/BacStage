@@ -23,34 +23,32 @@ Create a CSV file with channel IDs in `data/raw/channels.csv`:
 
 ```csv
 channel_id,channel_name,subjects
-UCxxxxxx,Channel Name,Math,Physics
+UCxxxxxx,Channel Name,Math
 ```
 
-See `algerian_bac_channels.csv.example` for template.
-
-### 3. Run Data Collection Pipeline
+### 3. Run the Pipeline
 
 ```bash
-# Option A: One-shot collection (first time)
-uv run python -m src.data.collect \
-    --channels data/raw/channels.csv \
-    --max-videos 100
+# Full pipeline: collect data + engineer features + analyze
+uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
+```
 
-# Option B: Incremental collection (daily refresh)
-uv run python -m src.data.collect_incremental \
-    --channels data/raw/channels.csv \
-    --discover  # Include --discover to find new videos
+Or run steps individually:
 
-# Step 2: Engineer features
-uv run python -m src.features.build_features \
-    --input data/raw/videos_metadata.csv \
-    --output data/processed/videos_engineered.csv
+```bash
+# Collect data only
+uv run python run_pipeline.py collect --channels data/raw/channels.csv
+
+# Engineer features
+uv run python run_pipeline.py engineer
+
+# Quick analysis
+uv run python run_pipeline.py analyze
 ```
 
 ### 4. Explore Data
 
 ```bash
-# Launch Jupyter notebook
 jupyter notebook notebooks/
 ```
 
@@ -58,412 +56,131 @@ jupyter notebook notebooks/
 
 ```
 SIC/
+├── run_pipeline.py              # Unified CLI entry point
+├── README.md                    # This file
+├── QUICK_REFERENCE.md           # Quick commands reference
+├── pyproject.toml               # Project configuration
 ├── data/
-│   ├── raw/                      # Raw data from collection
-│   │   ├── api_responses/        # Immutable JSON from YouTube API
-│   │   ├── channels.csv          # Input: channel list
-│   │   ├── video_registry.csv    # Known video IDs + metadata
-│   │   └── videos_metadata.csv   # Parsed video data with snapshots
-│   └── processed/                # Feature-engineered data
-├── notebooks/                    # Jupyter notebooks (01_*.ipynb)
-├── src/                          # Source code
-│   ├── data/                     # Data collection modules
-│   │   ├── youtube_collector.py  # YouTube API wrapper
-│   │   ├── video_registry.py     # Video ID registry manager
-│   │   ├── storage.py            # Raw JSON storage utilities
-│   │   ├── collect.py            # One-shot collection CLI
-│   │   ├── collect_incremental.py # Incremental collection CLI
-│   │   └── collect_enhanced.py   # Enhanced collection CLI
-│   ├── features/                 # Feature engineering
-│   │   ├── engineer.py
-│   │   └── build_features.py
-│   ├── models/                   # Model training (future)
-│   └── visualization/            # Visualizations
-├── tests/                        # Unit tests (pytest)
-├── .env.example                  # Environment variables template
-├── pyproject.toml                # Project configuration
-└── README.md                     # This file
+│   ├── README.md                # Data documentation
+│   ├── raw/                     # Raw data from collection
+│   │   ├── channels.csv         # Input: channel list
+│   │   ├── videos_metadata.csv  # Video data with snapshots
+│   │   ├── video_registry.csv   # Known video IDs
+│   │   └── channel_statistics.csv
+│   └── processed/               # Feature-engineered data
+│       └── videos_engineered.csv
+├── notebooks/                   # Jupyter notebooks
+│   └── 01_data_exploration.ipynb
+├── src/                         # Source code
+│   ├── data/                    # Data collection
+│   │   ├── youtube_collector.py # YouTube API wrapper
+│   │   ├── video_registry.py    # Video ID registry
+│   │   ├── storage.py           # Raw JSON utilities
+│   │   └── collect.py           # Collection CLI
+│   └── features/                # Feature engineering
+│       ├── engineer.py
+│       └── build_features.py
+└── tests/                       # Unit tests (pytest)
+```
+
+## CLI Commands
+
+All operations use `run_pipeline.py`:
+
+| Command | Description |
+|---------|-------------|
+| `full-pipeline` | Run everything: collect + engineer + analyze |
+| `collect` | Gather video metadata and channel statistics |
+| `engineer` | Build ML features from raw data |
+| `analyze` | Quick stats on collected data |
+
+### Common Options
+
+```bash
+# Limit videos per channel
+--max-videos 50
+
+# Set API quota limit
+--max-quota 5000
+
+# Skip discovery (only update known videos)
+--no-discover
+
+# Keep only latest snapshot per video
+--mode dedupe
+
+# Include comment samples
+--collect-comments
 ```
 
 ## Features
 
 ### Data Collection (Quota-Optimized)
-- **Uploads Playlist Discovery**: Uses `playlistItems.list` (1 unit/50 videos) instead of `search.list` (100 units/50 videos)
-- **Batched Enrichment**: Fetches 50 videos per `videos.list` request (50x more efficient)
-- **Video Registry**: Tracks known video IDs for efficient incremental updates
-- **Snapshot Tracking**: Append mode enables time-series analysis of engagement growth
-- **Quota Management**: Automatic tracking with configurable limits
+
+- **Uploads Playlist Discovery**: 1 unit per 50 videos (vs 100 units with search.list)
+- **Batched Enrichment**: 50 videos per API request
+- **Video Registry**: Tracks known videos for incremental updates
+- **Snapshot Tracking**: Enables time-series analysis
+- **Channel Statistics**: Subscriber counts, view totals, etc.
 
 ### Feature Engineering
-- **Temporal Features**: Upload timing, video age, seasonal patterns
-- **Content Features**: Duration, title/description analysis, subject detection
-- **Engagement Metrics**: Like/comment ratios, engagement scores
-- **Channel Features**: Aggregated channel-level statistics
 
-### Code Quality
-- **Type Hints**: Full type annotations for all functions
-- **Testing**: Comprehensive unit test coverage with pytest (42 tests)
-- **Logging**: Structured logging for debugging and monitoring
-- **Documentation**: Google-style docstrings throughout
+- **Temporal**: Upload timing, video age, seasonal patterns
+- **Content**: Duration, title analysis, subject detection
+- **Engagement**: Like/comment ratios, engagement scores
+- **Channel**: Aggregated channel-level statistics
 
-## API Quota (Optimized Architecture)
+## API Quota Efficiency
 
 YouTube Data API v3: 10,000 quota units per day
 
-### Quota Comparison (4 channels x 200 videos)
+| Operation | Old Method | New Method | Savings |
+|-----------|-----------|-----------|---------|
+| Discover 200 videos | 400 units | 4 units | 100x |
+| Enrich 200 videos | 200 units | 4 units | 50x |
+| **Total (4 channels)** | **2,400 units** | **24 units** | **100x** |
 
-| Operation | Old Method | Old Quota | New Method | New Quota |
-|-----------|-----------|-----------|-----------|-----------|
-| Discovery | search.list | 1,600 units | playlistItems.list | 8 units |
-| Enrichment | videos.list (1 at a time) | 800 units | videos.list (batched) | 16 units |
-| **Total** | | **2,400 units** | | **24 units** |
-
-**Result**: ~100x reduction in quota usage, enabling daily refreshes within the 10,000 unit limit.
+This enables daily refreshes within the quota limit.
 
 ## Data Schema
 
-### Video Registry (`data/raw/video_registry.csv`)
-- `video_id`: YouTube video ID
-- `channel_id`: Channel that uploaded the video
-- `discovered_at`: When the video was first discovered
-- `last_seen_at`: When the video was last seen in uploads playlist
-- `source`: How the video was discovered (uploads_playlist, bootstrap_csv)
-
-### Raw Video Metadata (`data/raw/videos_metadata.csv`)
+### videos_metadata.csv
 - `video_id`, `title`, `description`, `publish_date`
 - `channel_id`, `channel_title`, `category_id`
-- `duration_iso`, `duration_sec`
-- `view_count`, `like_count`, `comment_count`
-- `tags`, `thumbnail_url`
-- `snapshot_date`: When this data was collected (enables time-series)
-- `run_id`: Links to raw JSON response files
+- `duration_sec`, `view_count`, `like_count`, `comment_count`
+- `snapshot_date`: Enables time-series tracking
+- `run_id`: Links to collection run
 
-### Engineered Features (`data/processed/videos_engineered.csv`)
-Additional features include:
-- Temporal: `days_since_publish`, `publish_hour`, `is_evening_upload`, `is_weekday`
-- Content: `title_length`, `subject`, `is_exam_focused`, `tag_count`
-- Engagement: `like_ratio`, `comment_ratio`, `engagement_score`, `engagement_category`
-- Channel: `channel_video_count`, `channel_avg_views`, `channel_age_days`
+### videos_engineered.csv
+Additional ML features:
+- `days_since_publish`, `publish_hour`, `is_evening_upload`
+- `title_length`, `subject`, `is_exam_focused`, `tag_count`
+- `like_ratio`, `engagement_score`, `engagement_category`
+- `channel_video_count`, `channel_avg_views`
 
 ## Development
-
-### Environment Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd SIC
-
-# Setup virtual environment
-uv venv
-.venv\Scripts\activate  # Windows (or source .venv/bin/activate on Linux/Mac)
-uv sync --all-extras
-
-# Configure environment
-cp .env.example .env
-# Edit .env and add your YOUTUBE_API_KEY
-```
 
 ### Running Tests
 
 ```bash
-# Run all tests with coverage
 uv run pytest
-
-# Run specific test file
-uv run pytest tests/test_youtube_collector.py
-
-# Run with verbose output
-uv run pytest -v
-
-# Generate coverage report
-uv run pytest --cov=src --cov-report=html
+uv run pytest -v  # Verbose
+uv run pytest --cov=src  # With coverage
 ```
 
 ### Code Quality
 
 ```bash
-# Format code (required before committing)
 uv run black src/ tests/
-
-# Check formatting without changes
-uv run black --check src/ tests/
-
-# Lint code
 uv run ruff check src/ tests/
-
-# Auto-fix linting issues
-uv run ruff check --fix src/ tests/
-
-# Type checking
 uv run mypy src/
 ```
 
-### Coding Standards
-
-This project follows strict data science best practices:
-
-**Package Management:**
-- Use `uv` exclusively for all package operations
-- Never use `pip` or `conda` directly
-
-**Code Style:**
-- **Type Hints**: Required for all function signatures in `src/`
-- **Docstrings**: Google-style docstrings for all functions
-- **Formatting**: Black (88 char line length)
-- **Linting**: Ruff (configured in `pyproject.toml`)
-- **Imports**: Use `pathlib.Path` for all file operations
-
-**Configuration:**
-- Never hardcode secrets or API keys
-- Use `.env` file for all configuration
-- Load with `python-dotenv`
-
-**Project Organization:**
-- `notebooks/`: Exploration only (name as `01_name.ipynb`)
-- `src/`: Production code only
-- `tests/`: Unit tests for all `src/` modules
-- `data/`: Data files (gitignored)
-
-**Example Code Pattern:**
-```python
-from pathlib import Path
-import os
-from dotenv import load_dotenv
-import logging
-
-logger = logging.getLogger(__name__)
-
-def process_data(input_path: Path, output_path: Path) -> pd.DataFrame:
-    """
-    Process raw data and save results.
-    
-    Args:
-        input_path: Path to input CSV file
-        output_path: Path to save processed data
-        
-    Returns:
-        Processed DataFrame
-        
-    Raises:
-        FileNotFoundError: If input file doesn't exist
-    """
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_path}")
-    
-    logger.info(f"Processing data from {input_path}")
-    # ... processing logic
-    return df
-```
-
-### Testing Guidelines
-
-- Write tests for all data transformations
-- Mock external API calls
-- Use fixtures from `tests/conftest.py`
-- Aim for >80% code coverage
-- Test both success and error cases
-
-### Git Workflow
-
-```bash
-# Create feature branch
-git checkout -b feature/your-feature-name
-
-# Make changes and test
-uv run pytest
-uv run black src/ tests/
-uv run ruff check src/ tests/
-
-# Commit changes
-git add .
-git commit -m "Add feature: description"
-
-# Push to remote
-git push origin feature/your-feature-name
-```
-
-**Commit Message Guidelines:**
-- Use clear, descriptive messages
-- Focus on "why" not "what"
-- Examples: "Add temporal feature engineering", "Fix quota tracking bug"
-
-### Troubleshooting
-
-**Import errors:**
-```bash
-# Reinstall package in development mode
-uv sync --all-extras
-```
-
-**API quota exceeded:**
-- Quota resets daily at midnight PST
-- Check `data_collection.log` for quota usage
-- Use `--max-quota` flag to limit usage
-
-**Tests failing:**
-```bash
-# Run specific test with verbose output
-uv run pytest tests/test_youtube_collector.py -v -s
-
-# Check test coverage
-uv run pytest --cov=src --cov-report=term-missing
-```
-
-## Architecture
-
-### System Overview
-
-The project follows an end-to-end ML pipeline with clear separation of concerns:
-
-```
-YouTube API → Data Collection → Feature Engineering → EDA → Modeling → Deployment
-```
-
-**Pipeline Flow:**
-
-1. **Data Collection** (`src/data/`)
-   - YouTube API integration via `YouTubeCollector` class
-   - Channel video enumeration and metadata extraction
-   - Automatic quota management and rate limiting
-   - Output: `data/raw/videos_metadata.csv`
-
-2. **Feature Engineering** (`src/features/`)
-   - Transform raw metadata via `VideoFeatureEngineer` class
-   - Create temporal, text, engagement, and channel features
-   - Output: `data/processed/videos_engineered.csv`
-
-3. **Exploratory Analysis** (`notebooks/`)
-   - Data quality checks and pattern discovery
-   - Statistical analysis and visualizations
-   - Insight generation for content creators
-
-4. **Model Development** (`src/models/`) - Future
-   - Feature selection and model training
-   - Performance evaluation and tuning
-   - Model persistence and versioning
-
-### Module Design
-
-**`src/data/youtube_collector.py`**
-- **Purpose**: YouTube API interaction and data collection
-- **Key Class**: `YouTubeCollector`
-  - State management (quota tracking)
-  - Methods: `get_channel_videos()`, `get_video_metadata()`, `collect_from_channels()`
-- **Design**: Class-based for state, separation of API calls from CLI logic
-
-**`src/features/engineer.py`**
-- **Purpose**: Transform raw data into ML-ready features
-- **Key Class**: `VideoFeatureEngineer`
-  - Modular feature groups: temporal, text, engagement, channel
-  - Reproducible transformations with collection date parameter
-- **Design**: Each feature group in separate method for easy extension
-
-**`src/data/collect.py` & `src/features/build_features.py`**
-- **Purpose**: CLI interfaces for data pipeline
-- **Features**: Argument parsing, logging, error handling
-- **Design**: Thin wrappers around core classes
-
-### Data Flow
-
-```
-channels.csv
-    ↓
-YouTubeCollector.collect_from_channels()
-    ↓
-data/raw/videos_metadata.csv
-    ↓
-VideoFeatureEngineer.fit_transform()
-    ↓
-data/processed/videos_engineered.csv
-    ↓
-Jupyter Notebooks (EDA)
-    ↓
-Insights & Models
-```
-
-### Design Patterns
-
-**1. Class-Based State Management**
-```python
-collector = YouTubeCollector(api_key)
-# Quota tracking persists across calls
-videos_df = collector.collect_from_channels(channels_df)
-```
-
-**2. Dependency Injection**
-```python
-engineer = VideoFeatureEngineer(collection_date=custom_date)
-# Reproducible feature engineering
-```
-
-**3. Factory Pattern for Features**
-```python
-# Each feature group has its own creation method
-engineer._create_temporal_features()
-engineer._create_text_features()
-engineer._create_engagement_features()
-```
-
-**4. Configuration via Environment**
-```python
-# No hardcoded secrets
-load_dotenv()
-api_key = os.getenv('YOUTUBE_API_KEY')
-```
-
-### Key Design Decisions
-
-**Package Management**: `uv` instead of `pip`
-- Faster dependency resolution
-- Better lock file support
-- Integrated virtual environment management
-
-**Configuration**: `.env` instead of `config.py`
-- Secrets never in code
-- Environment-specific settings
-- Standard pattern across projects
-
-**Testing**: Comprehensive pytest suite
-- Mock external API calls
-- Fixtures for test data
-- ~85% code coverage on core modules
-
-**Type Safety**: Full type hints throughout `src/`
-- Catches errors at development time
-- Better IDE support
-- Self-documenting code
-
-## Project Evolution
-
-This project was refactored from a monolithic script (`extract_raw_data.py`) to a modular, production-ready codebase following data science best practices.
-
-**Key Improvements:**
-- ✅ Modular class-based design (reusable components)
-- ✅ Comprehensive testing (19 unit tests)
-- ✅ Type safety (100% type hints in `src/`)
-- ✅ Modern tooling (`uv`, `black`, `ruff`, `mypy`)
-- ✅ Security (`.env` for secrets)
-- ✅ Documentation (Google-style docstrings)
-
-## Next Steps
-
-1. **Data Collection**: Configure API key and collect your first dataset
-2. **Exploratory Analysis**: Use `notebooks/01_data_exploration.ipynb` to explore patterns
-3. **Feature Engineering**: Run the full pipeline to create ML-ready features
-4. **Model Development**: Build predictive models in `src/models/`
-5. **Deployment**: Package models for production use
-
 ## Documentation
 
-- **📖 README.md** (this file) - Complete project overview and architecture
-- **📚 IMPLEMENTATION_GUIDE.md** - Step-by-step implementation walkthrough
-- **⚡ QUICK_REFERENCE.md** - Quick commands and common workflows
-- **🔧 TROUBLESHOOTING.md** - Common errors and solutions
-- **📁 data/README.md** - Data directory structure and tips
-- **📓 notebooks/README.md** - Notebook usage guidelines
-
-**Note:** All logs are saved to `logs/` directory for better organization
+- **README.md** - Project overview (this file)
+- **QUICK_REFERENCE.md** - Quick commands and workflows
+- **data/README.md** - Data directory documentation
 
 ## License
 

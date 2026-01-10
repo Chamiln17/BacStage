@@ -14,14 +14,11 @@ import pandas as pd
 
 from src.features.engineer import VideoFeatureEngineer
 
-# Setup logging
+# Setup logging (console only)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/feature_engineering.log", encoding="utf-8"),
-    ],
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
