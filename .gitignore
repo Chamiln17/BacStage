@@ -14,25 +14,46 @@ config.py
 .env
 !.env.example
 
-# Data files
-!*.csv.example
-*.json
-*.xlsx
+# Data Files
+# Raw API responses (can be large, regeneratable)
+data/raw/api_responses/
 
-# Output files
-videos_metadata.csv
-videos_engineered.csv
-comments_raw.csv
+# Backup files (timestamped)
+data/raw/*_backup_*.csv
+
+# Large generated data files
+data/raw/videos_metadata.csv
+data/raw/video_registry.csv
+data/raw/channel_statistics.csv
+data/raw/comments_sample.csv
+
+# Processed/engineered data (regeneratable from raw)
+data/processed/*.csv
+
+# Keep example files and channels.csv
+!*.csv.example
+!data/raw/channels.csv
+
+# Other data formats
+*.xlsx
+*.parquet
+
+# Output/Generated Files
 *.png
 *.jpg
 
-# IDE
+# IDE and Editor
 .vscode/
 .idea/
 *.swp
 *.swo
+.cursor/
 
-# OS
+# OS Files
 .DS_Store
 Thumbs.db
-.cursor/
+
+# Testing/Coverage
+.coverage
+htmlcov/
+.pytest_cache/

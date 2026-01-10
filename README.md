@@ -31,11 +31,15 @@ See `algerian_bac_channels.csv.example` for template.
 ### 3. Run Data Collection Pipeline
 
 ```bash
-# Step 1: Collect raw video metadata
+# Option A: One-shot collection (first time)
 uv run python -m src.data.collect \
     --channels data/raw/channels.csv \
-    --output data/raw/videos_metadata.csv \
     --max-videos 100
+
+# Option B: Incremental collection (daily refresh)
+uv run python -m src.data.collect_incremental \
+    --channels data/raw/channels.csv \
+    --discover  # Include --discover to find new videos
 
 # Step 2: Engineer features
 uv run python -m src.features.build_features \
@@ -55,37 +59,40 @@ jupyter notebook notebooks/
 ```
 SIC/
 ├── data/
-│   ├── raw/              # Raw data from APIs
-│   ├── processed/        # Cleaned, transformed data
-│   └── external/         # Data from third-party sources
-├── notebooks/            # Jupyter notebooks for exploration (01_*.ipynb)
-├── src/                  # Source code for production use
-│   ├── __init__.py
-│   ├── data/            # Scripts to download/generate data
-│   │   ├── youtube_collector.py
-│   │   └── collect.py
-│   ├── features/        # Scripts to create features
+│   ├── raw/                      # Raw data from collection
+│   │   ├── api_responses/        # Immutable JSON from YouTube API
+│   │   ├── channels.csv          # Input: channel list
+│   │   ├── video_registry.csv    # Known video IDs + metadata
+│   │   └── videos_metadata.csv   # Parsed video data with snapshots
+│   └── processed/                # Feature-engineered data
+├── notebooks/                    # Jupyter notebooks (01_*.ipynb)
+├── src/                          # Source code
+│   ├── data/                     # Data collection modules
+│   │   ├── youtube_collector.py  # YouTube API wrapper
+│   │   ├── video_registry.py     # Video ID registry manager
+│   │   ├── storage.py            # Raw JSON storage utilities
+│   │   ├── collect.py            # One-shot collection CLI
+│   │   ├── collect_incremental.py # Incremental collection CLI
+│   │   └── collect_enhanced.py   # Enhanced collection CLI
+│   ├── features/                 # Feature engineering
 │   │   ├── engineer.py
 │   │   └── build_features.py
-│   ├── models/          # Scripts to train models
-│   └── visualization/   # Scripts for visualizations
-├── tests/               # Unit tests (pytest)
-│   ├── test_youtube_collector.py
-│   └── test_feature_engineer.py
-├── .env.example         # Environment variables template
-├── pyproject.toml       # Project configuration and dependencies
-├── IMPLEMENTATION_GUIDE.md  # Detailed implementation guide
-├── QUICK_REFERENCE.md       # Quick command reference
-└── README.md                # This file
+│   ├── models/                   # Model training (future)
+│   └── visualization/            # Visualizations
+├── tests/                        # Unit tests (pytest)
+├── .env.example                  # Environment variables template
+├── pyproject.toml                # Project configuration
+└── README.md                     # This file
 ```
 
 ## Features
 
-### Data Collection
-- **YouTube API Integration**: Collect video metadata using YouTube Data API v3
-- **Quota Management**: Automatic tracking and limits on API usage
-- **Batch Processing**: Efficient collection from multiple channels
-- **Error Handling**: Robust handling of API errors and rate limits
+### Data Collection (Quota-Optimized)
+- **Uploads Playlist Discovery**: Uses `playlistItems.list` (1 unit/50 videos) instead of `search.list` (100 units/50 videos)
+- **Batched Enrichment**: Fetches 50 videos per `videos.list` request (50x more efficient)
+- **Video Registry**: Tracks known video IDs for efficient incremental updates
+- **Snapshot Tracking**: Append mode enables time-series analysis of engagement growth
+- **Quota Management**: Automatic tracking with configurable limits
 
 ### Feature Engineering
 - **Temporal Features**: Upload timing, video age, seasonal patterns
@@ -95,19 +102,32 @@ SIC/
 
 ### Code Quality
 - **Type Hints**: Full type annotations for all functions
-- **Testing**: Comprehensive unit test coverage with pytest
+- **Testing**: Comprehensive unit test coverage with pytest (42 tests)
 - **Logging**: Structured logging for debugging and monitoring
 - **Documentation**: Google-style docstrings throughout
 
-## API Quota Notes
+## API Quota (Optimized Architecture)
 
-- YouTube Data API v3: 10,000 quota units per day
-- Quota costs:
-  - `search.list`: ~100 units per request
-  - `videos.list`: ~1 unit per video
-- Default limit: 8,000 units (reserves buffer for other operations)
+YouTube Data API v3: 10,000 quota units per day
+
+### Quota Comparison (4 channels x 200 videos)
+
+| Operation | Old Method | Old Quota | New Method | New Quota |
+|-----------|-----------|-----------|-----------|-----------|
+| Discovery | search.list | 1,600 units | playlistItems.list | 8 units |
+| Enrichment | videos.list (1 at a time) | 800 units | videos.list (batched) | 16 units |
+| **Total** | | **2,400 units** | | **24 units** |
+
+**Result**: ~100x reduction in quota usage, enabling daily refreshes within the 10,000 unit limit.
 
 ## Data Schema
+
+### Video Registry (`data/raw/video_registry.csv`)
+- `video_id`: YouTube video ID
+- `channel_id`: Channel that uploaded the video
+- `discovered_at`: When the video was first discovered
+- `last_seen_at`: When the video was last seen in uploads playlist
+- `source`: How the video was discovered (uploads_playlist, bootstrap_csv)
 
 ### Raw Video Metadata (`data/raw/videos_metadata.csv`)
 - `video_id`, `title`, `description`, `publish_date`
@@ -115,6 +135,8 @@ SIC/
 - `duration_iso`, `duration_sec`
 - `view_count`, `like_count`, `comment_count`
 - `tags`, `thumbnail_url`
+- `snapshot_date`: When this data was collected (enables time-series)
+- `run_id`: Links to raw JSON response files
 
 ### Engineered Features (`data/processed/videos_engineered.csv`)
 Additional features include:

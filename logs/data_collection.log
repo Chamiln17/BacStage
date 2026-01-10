@@ -113,3 +113,45 @@
 2026-01-09 00:12:32,158 - __main__ - INFO - Dataset shape: (10, 14)
 2026-01-09 00:12:32,158 - __main__ - INFO - Columns: video_id, title, description, publish_date, channel_id, channel_title, category_id, duration_iso, view_count, like_count, comment_count, tags, thumbnail_url, duration_sec
 2026-01-09 00:12:32,158 - __main__ - INFO - Date range: 2026-01-01 15:06:12+00:00 to 2026-01-08 14:26:18+00:00
+2026-01-10 23:10:54,479 - __main__ - INFO - ============================================================
+2026-01-10 23:10:54,479 - __main__ - INFO - YouTube Data Collection Pipeline
+2026-01-10 23:10:54,479 - __main__ - INFO - ============================================================
+2026-01-10 23:10:54,479 - __main__ - INFO - Run ID: 62b480a0
+2026-01-10 23:10:54,479 - __main__ - INFO - Snapshot date: 2026-01-10T23:10:54.479724
+2026-01-10 23:10:54,480 - __main__ - INFO - API key loaded successfully
+2026-01-10 23:10:54,543 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - YouTube API client initialized successfully
+2026-01-10 23:10:54,575 - __main__ - INFO - Loaded 3 channels from data\raw\channels.csv
+2026-01-10 23:10:54,575 - src.data.video_registry - INFO - Registry not found at data\raw\video_registry.csv, creating new one
+2026-01-10 23:10:54,575 - __main__ - INFO - Registry loaded: 0 existing videos
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - Starting collection from 3 channels
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - Max videos per channel: 5
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - Quota limit: 100 units
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - [1/3] Processing: Katfi Charif Zina
+2026-01-10 23:10:54,575 - src.data.youtube_collector - INFO - Fetching videos from channel UCuJqXbrblfKeO9fa82a7KHQ
+2026-01-10 23:10:55,251 - src.data.youtube_collector - INFO - Retrieved 5 video IDs using uploads playlist
+2026-01-10 23:10:55,251 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos (batched)
+2026-01-10 23:10:55,251 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos in 1 batches
+2026-01-10 23:10:55,403 - src.data.youtube_collector - INFO - Fetched metadata for 5/5 videos (1 API requests, 1 quota units)
+2026-01-10 23:10:55,403 - src.data.youtube_collector - INFO - Collected 5 videos from Katfi Charif Zina (Total quota: 3/100)
+2026-01-10 23:10:55,403 - src.data.youtube_collector - INFO - [2/3] Processing: Mr.Mansouri
+2026-01-10 23:10:55,403 - src.data.youtube_collector - INFO - Fetching videos from channel UC1OxQheqDv1l0l7sj3HHqQQ
+2026-01-10 23:10:55,745 - src.data.youtube_collector - INFO - Retrieved 5 video IDs using uploads playlist
+2026-01-10 23:10:55,745 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos (batched)
+2026-01-10 23:10:55,746 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos in 1 batches
+2026-01-10 23:10:55,883 - src.data.youtube_collector - INFO - Fetched metadata for 5/5 videos (1 API requests, 1 quota units)
+2026-01-10 23:10:55,883 - src.data.youtube_collector - INFO - Collected 5 videos from Mr.Mansouri (Total quota: 6/100)
+2026-01-10 23:10:55,883 - src.data.youtube_collector - INFO - [3/3] Processing: Higuone Oussama
+2026-01-10 23:10:55,883 - src.data.youtube_collector - INFO - Fetching videos from channel UCTiFoJXhyBE1QYL4ClQVprQ
+2026-01-10 23:10:56,184 - src.data.youtube_collector - INFO - Retrieved 5 video IDs using uploads playlist
+2026-01-10 23:10:56,184 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos (batched)
+2026-01-10 23:10:56,184 - src.data.youtube_collector - INFO - Fetching metadata for 5 videos in 1 batches
+2026-01-10 23:10:56,335 - src.data.youtube_collector - INFO - Fetched metadata for 5/5 videos (1 API requests, 1 quota units)
+2026-01-10 23:10:56,335 - src.data.youtube_collector - INFO - Collected 5 videos from Higuone Oussama (Total quota: 9/100)
+2026-01-10 23:10:56,375 - src.data.youtube_collector - INFO - Collection complete: 15 videos from 3 channels
+2026-01-10 23:10:56,375 - src.data.youtube_collector - INFO - Total API quota used: 9
+2026-01-10 23:10:56,392 - __main__ - INFO - Saved 15 videos to: data\raw\videos_metadata.csv
+2026-01-10 23:10:56,392 - __main__ - INFO - Dataset shape: (15, 16)
+2026-01-10 23:10:56,392 - __main__ - INFO - Columns: video_id, title, description, publish_date, channel_id, channel_title, category_id, duration_iso, duration_sec, view_count, like_count, comment_count, tags, thumbnail_url, snapshot_date, run_id
+2026-01-10 23:10:56,392 - __main__ - INFO - Date range: 2025-10-26 18:00:11+00:00 to 2026-01-08 14:26:18+00:00
+2026-01-10 23:10:56,392 - __main__ - INFO - Quota used: 9 units
