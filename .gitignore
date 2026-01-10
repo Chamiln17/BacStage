@@ -15,7 +15,6 @@ config.py
 !.env.example
 
 # Data files
-*.csv
 !*.csv.example
 *.json
 *.xlsx
