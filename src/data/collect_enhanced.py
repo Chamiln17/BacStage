@@ -2,22 +2,28 @@
 Enhanced data collection with additional insights.
 
 Collects:
-- Video metadata (existing)
-- Channel statistics (new)
-- Comment samples (new, optional)
-- Thumbnail analysis data (new)
+- Video metadata (using batched enrichment)
+- Channel statistics
+- Comment samples (optional)
+
+Uses optimized quota-efficient methods:
+- Uploads playlist for discovery (1 unit per 50 videos)
+- Batched videos.list for enrichment (1 unit per 50 videos)
 """
 
 import argparse
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
 from dotenv import load_dotenv
 
+from src.data.storage import get_run_id
+from src.data.video_registry import VideoRegistry
 from src.data.youtube_collector import YouTubeCollector
 
 # Setup logging
@@ -51,37 +57,6 @@ def get_api_key() -> str:
     return api_key
 
 
-def get_channel_statistics(youtube_client, channel_id: str) -> Dict:
-    """
-    Get detailed channel statistics.
-
-    Returns:
-        Dict with channel stats: subscribers, total_videos, total_views, etc.
-    """
-    try:
-        request = youtube_client.channels().list(
-            part="statistics,snippet,contentDetails", id=channel_id
-        )
-        response = request.execute()
-
-        if response.get("items"):
-            channel = response["items"][0]
-            return {
-                "channel_id": channel_id,
-                "subscriber_count": int(
-                    channel["statistics"].get("subscriberCount", 0)
-                ),
-                "total_video_count": int(channel["statistics"].get("videoCount", 0)),
-                "total_view_count": int(channel["statistics"].get("viewCount", 0)),
-                "channel_created_date": channel["snippet"].get("publishedAt", ""),
-                "channel_description": channel["snippet"].get("description", ""),
-                "channel_country": channel["snippet"].get("country", ""),
-            }
-    except Exception as e:
-        logger.error(f"Error fetching channel stats for {channel_id}: {e}")
-        return {}
-
-
 def get_video_comments_sample(
     youtube_client, video_id: str, max_comments: int = 10
 ) -> List[Dict]:
@@ -95,6 +70,9 @@ def get_video_comments_sample(
 
     Returns:
         List of comment dictionaries
+
+    Note:
+        API quota cost: ~1 unit per request
     """
     comments = []
     try:
@@ -102,7 +80,7 @@ def get_video_comments_sample(
             part="snippet",
             videoId=video_id,
             maxResults=max_comments,
-            order="relevance",  # Get most relevant comments
+            order="relevance",
             textFormat="plainText",
         )
         response = request.execute()
@@ -128,7 +106,19 @@ def get_video_comments_sample(
 def main() -> None:
     """Main entry point for enhanced data collection CLI."""
     parser = argparse.ArgumentParser(
-        description="Enhanced YouTube data collection with additional insights"
+        description="Enhanced YouTube data collection with additional insights",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic collection with channel stats
+  uv run python -m src.data.collect_enhanced --channels data/raw/channels.csv
+
+  # Include comment samples from top videos
+  uv run python -m src.data.collect_enhanced --channels data/raw/channels.csv --collect-comments
+
+  # Update registry for future incremental runs
+  uv run python -m src.data.collect_enhanced --channels data/raw/channels.csv --update-registry
+        """,
     )
 
     parser.add_argument(
@@ -157,6 +147,13 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--registry",
+        type=Path,
+        default=Path("data/raw/video_registry.csv"),
+        help="Path to video registry CSV",
+    )
+
+    parser.add_argument(
         "--max-videos", type=int, default=None, help="Max videos per channel"
     )
 
@@ -170,11 +167,23 @@ def main() -> None:
         help="Also collect comment samples (uses more quota)",
     )
 
+    parser.add_argument(
+        "--update-registry",
+        action="store_true",
+        help="Update video registry with discovered video IDs",
+    )
+
     args = parser.parse_args()
+
+    # Generate run metadata
+    run_id = get_run_id()
+    snapshot_date = datetime.now()
 
     logger.info("=" * 60)
     logger.info("Enhanced YouTube Data Collection Pipeline")
     logger.info("=" * 60)
+    logger.info(f"Run ID: {run_id}")
+    logger.info(f"Snapshot date: {snapshot_date.isoformat()}")
 
     # Get API key
     try:
@@ -207,7 +216,14 @@ def main() -> None:
         logger.error(f"Error loading channels: {e}")
         sys.exit(1)
 
-    # Collect channel statistics
+    # Initialize registry if requested
+    registry = None
+    if args.update_registry:
+        registry = VideoRegistry(args.registry)
+        registry.load()
+        logger.info(f"Registry loaded: {len(registry)} existing videos")
+
+    # Phase 1: Channel Statistics
     logger.info("\n" + "=" * 60)
     logger.info("PHASE 1: CHANNEL STATISTICS")
     logger.info("=" * 60)
@@ -215,18 +231,23 @@ def main() -> None:
     channel_stats_list = []
     for idx, row in channels_df.iterrows():
         channel_id = row["channel_id"]
-        logger.info(f"[{idx+1}/{len(channels_df)}] Getting stats for {channel_id}")
-        stats = get_channel_statistics(youtube, channel_id)
+        channel_name = row.get("channel_name", channel_id)
+        logger.info(f"[{idx+1}/{len(channels_df)}] Getting stats for {channel_name}")
+        
+        # Use the collector's get_channel_info method
+        stats = collector.get_channel_info(channel_id)
         if stats:
+            # Add snapshot metadata
+            stats["snapshot_date"] = snapshot_date.isoformat()
             channel_stats_list.append(stats)
 
     if channel_stats_list:
         channel_stats_df = pd.DataFrame(channel_stats_list)
         args.channel_stats_output.parent.mkdir(parents=True, exist_ok=True)
         channel_stats_df.to_csv(args.channel_stats_output, index=False)
-        logger.info(f"✓ Saved channel statistics to: {args.channel_stats_output}")
+        logger.info(f"Saved channel statistics to: {args.channel_stats_output}")
 
-    # Collect video metadata
+    # Phase 2: Video Metadata (using optimized batched collection)
     logger.info("\n" + "=" * 60)
     logger.info("PHASE 2: VIDEO METADATA")
     logger.info("=" * 60)
@@ -236,18 +257,29 @@ def main() -> None:
             channels_df,
             max_videos_per_channel=args.max_videos,
             max_quota=args.max_quota,
+            snapshot_date=snapshot_date,
+            run_id=run_id,
         )
     except Exception as e:
         logger.error(f"Error during collection: {e}")
         sys.exit(1)
 
+    # Update registry if requested
+    if registry and not videos_df.empty:
+        for channel_id in videos_df["channel_id"].unique():
+            channel_videos = videos_df[videos_df["channel_id"] == channel_id]["video_id"].tolist()
+            registry.add_videos(channel_videos, channel_id, source="enhanced_collect")
+        registry.save()
+        logger.info(f"Registry updated: {len(registry)} total videos")
+
     # Save video metadata
+    all_comments = []
     if not videos_df.empty:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         videos_df.to_csv(args.output, index=False)
-        logger.info(f"✓ Saved {len(videos_df)} videos to: {args.output}")
+        logger.info(f"Saved {len(videos_df)} videos to: {args.output}")
 
-        # Collect comment samples if requested
+        # Phase 3: Comment samples (if requested)
         if args.collect_comments and collector.quota_used < args.max_quota - 500:
             logger.info("\n" + "=" * 60)
             logger.info("PHASE 3: COMMENT SAMPLES")
@@ -255,9 +287,8 @@ def main() -> None:
 
             # Sample top videos by views
             top_videos = videos_df.nlargest(50, "view_count")
-            all_comments = []
 
-            for idx, video_row in top_videos.iterrows():
+            for idx, (_, video_row) in enumerate(top_videos.iterrows()):
                 if collector.quota_used >= args.max_quota - 100:
                     logger.warning(
                         "Approaching quota limit, stopping comment collection"
@@ -266,6 +297,11 @@ def main() -> None:
 
                 video_id = video_row["video_id"]
                 comments = get_video_comments_sample(youtube, video_id, max_comments=10)
+                
+                # Add snapshot metadata to comments
+                for comment in comments:
+                    comment["snapshot_date"] = snapshot_date.isoformat()
+                
                 all_comments.extend(comments)
                 collector.quota_used += 1  # Approximate quota cost
 
@@ -277,18 +313,18 @@ def main() -> None:
                 args.comments_output.parent.mkdir(parents=True, exist_ok=True)
                 comments_df.to_csv(args.comments_output, index=False)
                 logger.info(
-                    f"✓ Saved {len(comments_df)} comments to: {args.comments_output}"
+                    f"Saved {len(comments_df)} comments to: {args.comments_output}"
                 )
 
         # Final summary
         logger.info("\n" + "=" * 60)
         logger.info("COLLECTION COMPLETE")
         logger.info("=" * 60)
-        logger.info(f"✓ Videos collected: {len(videos_df)}")
-        logger.info(f"✓ Channels analyzed: {len(channel_stats_list)}")
+        logger.info(f"Videos collected: {len(videos_df)}")
+        logger.info(f"Channels analyzed: {len(channel_stats_list)}")
         if args.collect_comments:
-            logger.info(f"✓ Comments collected: {len(all_comments)}")
-        logger.info(f"✓ Total quota used: {collector.quota_used}")
+            logger.info(f"Comments collected: {len(all_comments)}")
+        logger.info(f"Total quota used: {collector.quota_used}")
 
     else:
         logger.warning("No data collected. Check logs for errors.")

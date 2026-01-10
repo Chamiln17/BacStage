@@ -1,6 +1,9 @@
 """
 CLI script for collecting YouTube video metadata.
 
+This is the simple one-shot collection script. For incremental updates
+with snapshot tracking, use collect_incremental.py instead.
+
 Usage:
     uv run python -m src.data.collect --channels data/raw/channels.csv --output data/raw/videos_metadata.csv
 """
@@ -9,11 +12,14 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
+from src.data.storage import get_run_id
+from src.data.video_registry import VideoRegistry
 from src.data.youtube_collector import YouTubeCollector
 
 # Setup logging
@@ -70,6 +76,9 @@ Examples:
 
   # Set quota limit
   uv run python -m src.data.collect --channels data/raw/channels.csv --max-quota 5000
+
+  # Update video registry for future incremental runs
+  uv run python -m src.data.collect --channels data/raw/channels.csv --update-registry
         """,
     )
 
@@ -88,6 +97,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--registry",
+        type=Path,
+        default=Path("data/raw/video_registry.csv"),
+        help="Path to video registry CSV (default: data/raw/video_registry.csv)",
+    )
+
+    parser.add_argument(
         "--max-videos",
         type=int,
         default=None,
@@ -101,11 +117,23 @@ Examples:
         help="Maximum API quota units to use (default: 8000)",
     )
 
+    parser.add_argument(
+        "--update-registry",
+        action="store_true",
+        help="Update video registry with discovered video IDs",
+    )
+
     args = parser.parse_args()
+
+    # Generate run metadata
+    run_id = get_run_id()
+    snapshot_date = datetime.now()
 
     logger.info("=" * 60)
     logger.info("YouTube Data Collection Pipeline")
     logger.info("=" * 60)
+    logger.info(f"Run ID: {run_id}")
+    logger.info(f"Snapshot date: {snapshot_date.isoformat()}")
 
     # Get API key
     try:
@@ -137,16 +165,33 @@ Examples:
         logger.error(f"Error loading channels: {e}")
         sys.exit(1)
 
+    # Initialize registry if requested
+    registry = None
+    if args.update_registry:
+        registry = VideoRegistry(args.registry)
+        registry.load()
+        logger.info(f"Registry loaded: {len(registry)} existing videos")
+
     # Collect data
     try:
         videos_df = collector.collect_from_channels(
             channels_df,
             max_videos_per_channel=args.max_videos,
             max_quota=args.max_quota,
+            snapshot_date=snapshot_date,
+            run_id=run_id,
         )
     except Exception as e:
         logger.error(f"Error during collection: {e}")
         sys.exit(1)
+
+    # Update registry if requested
+    if registry and not videos_df.empty:
+        for channel_id in videos_df["channel_id"].unique():
+            channel_videos = videos_df[videos_df["channel_id"] == channel_id]["video_id"].tolist()
+            registry.add_videos(channel_videos, channel_id, source="collect_script")
+        registry.save()
+        logger.info(f"Registry updated: {len(registry)} total videos")
 
     # Save results
     if not videos_df.empty:
@@ -154,12 +199,16 @@ Examples:
         args.output.parent.mkdir(parents=True, exist_ok=True)
 
         videos_df.to_csv(args.output, index=False)
-        logger.info(f"✓ Saved {len(videos_df)} videos to: {args.output}")
+        logger.info(f"Saved {len(videos_df)} videos to: {args.output}")
         logger.info(f"Dataset shape: {videos_df.shape}")
         logger.info(f"Columns: {', '.join(videos_df.columns.tolist())}")
-        logger.info(
-            f"Date range: {videos_df['publish_date'].min()} to {videos_df['publish_date'].max()}"
-        )
+        
+        if "publish_date" in videos_df.columns:
+            logger.info(
+                f"Date range: {videos_df['publish_date'].min()} to {videos_df['publish_date'].max()}"
+            )
+        
+        logger.info(f"Quota used: {collector.quota_used} units")
     else:
         logger.warning("No data collected. Check logs for errors.")
         sys.exit(1)
