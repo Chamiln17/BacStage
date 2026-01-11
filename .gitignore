@@ -22,10 +22,10 @@ data/raw/api_responses/
 data/raw/*_backup_*.csv
 
 # Large generated data files
-data/raw/videos_metadata.csv
-data/raw/video_registry.csv
-data/raw/channel_statistics.csv
-data/raw/comments_sample.csv
+#data/raw/videos_metadata.csv
+#data/raw/video_registry.csv
+#data/raw/channel_statistics.csv
+#data/raw/comments_sample.csv
 
 # Processed/engineered data (regeneratable from raw)
 data/processed/*.csv
