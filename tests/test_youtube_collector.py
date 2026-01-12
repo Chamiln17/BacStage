@@ -126,11 +126,7 @@ class TestUploadsPlaylistDiscovery:
             "items": [
                 {
                     "id": "UC123",
-                    "contentDetails": {
-                        "relatedPlaylists": {
-                            "uploads": "UU123"
-                        }
-                    }
+                    "contentDetails": {"relatedPlaylists": {"uploads": "UU123"}},
                 }
             ]
         }
@@ -164,7 +160,7 @@ class TestUploadsPlaylistDiscovery:
                 {"contentDetails": {"videoId": "vid2"}},
                 {"contentDetails": {"videoId": "vid3"}},
             ],
-            "nextPageToken": None
+            "nextPageToken": None,
         }
         mock_build.return_value = mock_youtube
 
@@ -179,11 +175,8 @@ class TestUploadsPlaylistDiscovery:
         """Test playlist video enumeration respects max_videos limit."""
         mock_youtube = Mock()
         mock_youtube.playlistItems().list().execute.return_value = {
-            "items": [
-                {"contentDetails": {"videoId": f"vid{i}"}}
-                for i in range(50)
-            ],
-            "nextPageToken": "token123"
+            "items": [{"contentDetails": {"videoId": f"vid{i}"}} for i in range(50)],
+            "nextPageToken": "token123",
         }
         mock_build.return_value = mock_youtube
 
@@ -245,11 +238,9 @@ class TestBatchedEnrichment:
 
         collector = YouTubeCollector("test_key")
         snapshot_date = datetime(2024, 1, 15)
-        
+
         metadata = collector.get_videos_metadata_batch(
-            ["vid1", "vid2"],
-            snapshot_date=snapshot_date,
-            run_id="test123"
+            ["vid1", "vid2"], snapshot_date=snapshot_date, run_id="test123"
         )
 
         assert len(metadata) == 2
@@ -258,10 +249,10 @@ class TestBatchedEnrichment:
         assert metadata[0]["view_count"] == 100
         assert metadata[0]["snapshot_date"] == snapshot_date.isoformat()
         assert metadata[0]["run_id"] == "test123"
-        
+
         assert metadata[1]["video_id"] == "vid2"
         assert metadata[1]["view_count"] == 200
-        
+
         # Only 1 API request for both videos (batched)
         assert collector.quota_used == 1
 
@@ -296,7 +287,7 @@ class TestBatchedEnrichment:
         mock_build.return_value = mock_youtube
 
         collector = YouTubeCollector("test_key")
-        
+
         # Fetch 50 videos in a batch
         video_ids = [f"vid{i}" for i in range(50)]
         metadata = collector.get_videos_metadata_batch(video_ids)
@@ -309,7 +300,7 @@ class TestBatchedEnrichment:
     def test_batch_multiple_batches(self, mock_build: Mock) -> None:
         """Test that large requests are split into multiple batches."""
         mock_youtube = Mock()
-        
+
         # Return different results for each batch
         def mock_execute():
             return {
@@ -335,12 +326,12 @@ class TestBatchedEnrichment:
                     for i in range(50)
                 ]
             }
-        
+
         mock_youtube.videos().list().execute.side_effect = mock_execute
         mock_build.return_value = mock_youtube
 
         collector = YouTubeCollector("test_key")
-        
+
         # Request 100 videos (should be 2 batches)
         video_ids = [f"vid{i}" for i in range(100)]
         collector.get_videos_metadata_batch(video_ids)

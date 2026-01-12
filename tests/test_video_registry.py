@@ -4,9 +4,8 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
-from src.data.video_registry import VideoRegistry, REGISTRY_COLUMNS
+from src.data.video_registry import REGISTRY_COLUMNS, VideoRegistry
 
 
 class TestVideoRegistry:
@@ -41,9 +40,7 @@ class TestVideoRegistry:
             registry.load()
 
             added = registry.add_videos(
-                ["vid1", "vid2", "vid3"],
-                "channel_123",
-                source="uploads_playlist"
+                ["vid1", "vid2", "vid3"], "channel_123", source="uploads_playlist"
             )
 
             assert added == 3
@@ -61,11 +58,11 @@ class TestVideoRegistry:
 
             # Add initial videos
             registry.add_videos(["vid1", "vid2"], "channel_123")
-            
+
             # Get initial last_seen_at
-            initial_last_seen = registry.data[
-                registry.data["video_id"] == "vid1"
-            ]["last_seen_at"].iloc[0]
+            initial_last_seen = registry.data[registry.data["video_id"] == "vid1"][
+                "last_seen_at"
+            ].iloc[0]
 
             # Add same videos again (with one new)
             added = registry.add_videos(["vid1", "vid2", "vid3"], "channel_123")
@@ -74,10 +71,10 @@ class TestVideoRegistry:
             assert len(registry) == 3
 
             # last_seen_at should be updated for existing videos
-            updated_last_seen = registry.data[
-                registry.data["video_id"] == "vid1"
-            ]["last_seen_at"].iloc[0]
-            
+            updated_last_seen = registry.data[registry.data["video_id"] == "vid1"][
+                "last_seen_at"
+            ].iloc[0]
+
             # The timestamp should have changed (or be the same if very fast)
             assert updated_last_seen >= initial_last_seen
 
@@ -85,7 +82,7 @@ class TestVideoRegistry:
         """Test saving and loading registry persists data."""
         with tempfile.TemporaryDirectory() as tmpdir:
             registry_path = Path(tmpdir) / "registry.csv"
-            
+
             # Create and save registry
             registry1 = VideoRegistry(registry_path)
             registry1.load()
@@ -118,7 +115,7 @@ class TestVideoRegistry:
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             registry.add_videos(["vid1", "vid2"], "channel_A")
             registry.add_videos(["vid3", "vid4", "vid5"], "channel_B")
 
@@ -134,7 +131,7 @@ class TestVideoRegistry:
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             registry.add_videos(["vid1", "vid2"], "channel_A")
             registry.add_videos(["vid3", "vid4", "vid5"], "channel_B")
 
@@ -156,7 +153,7 @@ class TestVideoRegistry:
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             registry.add_videos(["vid1"], "channel_A")
             registry.add_videos(["vid2", "vid3"], "channel_B")
             registry.add_videos(["vid4"], "channel_C")
@@ -171,7 +168,7 @@ class TestVideoRegistry:
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             registry.add_videos(["vid1"], "channel_A")
             registry.add_videos(["vid2", "vid3", "vid4"], "channel_B")
 
@@ -185,25 +182,27 @@ class TestVideoRegistry:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a mock videos_metadata.csv
             videos_csv_path = Path(tmpdir) / "videos_metadata.csv"
-            videos_df = pd.DataFrame({
-                "video_id": ["vid1", "vid2", "vid3", "vid4"],
-                "channel_id": ["ch_A", "ch_A", "ch_B", "ch_B"],
-                "title": ["Title 1", "Title 2", "Title 3", "Title 4"],
-            })
+            videos_df = pd.DataFrame(
+                {
+                    "video_id": ["vid1", "vid2", "vid3", "vid4"],
+                    "channel_id": ["ch_A", "ch_A", "ch_B", "ch_B"],
+                    "title": ["Title 1", "Title 2", "Title 3", "Title 4"],
+                }
+            )
             videos_df.to_csv(videos_csv_path, index=False)
 
             # Bootstrap registry from it
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             added = registry.bootstrap_from_csv(videos_csv_path)
 
             assert added == 4
             assert len(registry) == 4
             assert "vid1" in registry
             assert "vid4" in registry
-            
+
             # Check source is set correctly
             sources = registry.data["source"].unique()
             assert "bootstrap_csv" in sources
@@ -214,7 +213,7 @@ class TestVideoRegistry:
             registry_path = Path(tmpdir) / "registry.csv"
             registry = VideoRegistry(registry_path)
             registry.load()
-            
+
             added = registry.bootstrap_from_csv(Path("/nonexistent/file.csv"))
 
             assert added == 0
@@ -240,7 +239,7 @@ class TestVideoRegistry:
             registry.load()
 
             assert len(registry) == 0
-            
+
             registry.add_videos(["vid1", "vid2", "vid3"], "channel_123")
-            
+
             assert len(registry) == 3

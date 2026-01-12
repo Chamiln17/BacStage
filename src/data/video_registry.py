@@ -8,7 +8,7 @@ enabling efficient incremental updates without re-discovering videos.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional
 
 import pandas as pd
 
@@ -80,7 +80,9 @@ class VideoRegistry:
                 for col in REGISTRY_COLUMNS:
                     if col not in self._data.columns:
                         self._data[col] = ""
-                logger.info(f"Loaded registry with {len(self._data)} videos from {self.path}")
+                logger.info(
+                    f"Loaded registry with {len(self._data)} videos from {self.path}"
+                )
             except Exception as e:
                 logger.error(f"Error loading registry: {e}")
                 self._data = self._create_empty_registry()
@@ -133,20 +135,24 @@ class VideoRegistry:
                 self._data.loc[self._data["video_id"] == video_id, "last_seen_at"] = now
             else:
                 # Add new video
-                new_records.append({
-                    "video_id": video_id,
-                    "channel_id": channel_id,
-                    "discovered_at": now,
-                    "last_seen_at": now,
-                    "source": source,
-                })
+                new_records.append(
+                    {
+                        "video_id": video_id,
+                        "channel_id": channel_id,
+                        "discovered_at": now,
+                        "last_seen_at": now,
+                        "source": source,
+                    }
+                )
                 new_count += 1
 
         if new_records:
             new_df = pd.DataFrame(new_records)
             self._data = pd.concat([self._data, new_df], ignore_index=True)
 
-        logger.info(f"Added {new_count} new videos, updated {len(video_ids) - new_count} existing")
+        logger.info(
+            f"Added {new_count} new videos, updated {len(video_ids) - new_count} existing"
+        )
         return new_count
 
     def get_all_video_ids(self) -> List[str]:
@@ -239,7 +245,9 @@ class VideoRegistry:
         # Group by channel and add to registry
         total_added = 0
         for channel_id in existing_df["channel_id"].unique():
-            channel_videos = existing_df[existing_df["channel_id"] == channel_id]["video_id"].tolist()
+            channel_videos = existing_df[existing_df["channel_id"] == channel_id][
+                "video_id"
+            ].tolist()
             added = self.add_videos(channel_videos, channel_id, source="bootstrap_csv")
             total_added += added
 

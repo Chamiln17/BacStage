@@ -36,12 +36,14 @@ class VideoFeatureEngineer:
         if collection_date is None:
             # Make timezone-aware to match API data
             from datetime import timezone
+
             collection_date = datetime.now(timezone.utc)
         elif collection_date.tzinfo is None:
             # Make timezone-aware if naive datetime provided
             from datetime import timezone
+
             collection_date = collection_date.replace(tzinfo=timezone.utc)
-            
+
         self.collection_date = collection_date
         logger.info(
             f"Feature engineer initialized with collection date: {self.collection_date}"
@@ -80,7 +82,9 @@ class VideoFeatureEngineer:
 
         # Ensure datetime type (handle both ISO8601 and standard formats)
         if not pd.api.types.is_datetime64_any_dtype(df["publish_date"]):
-            df["publish_date"] = pd.to_datetime(df["publish_date"], format="ISO8601", utc=True)
+            df["publish_date"] = pd.to_datetime(
+                df["publish_date"], format="ISO8601", utc=True
+            )
 
         # Clean basic fields
         df = self._clean_data(df)

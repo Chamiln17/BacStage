@@ -21,7 +21,11 @@ def sample_raw_videos() -> pd.DataFrame:
                 "Analysis of classical Arabic poetry",
             ],
             "publish_date": pd.to_datetime(
-                ["2024-01-15 18:00:00+00:00", "2024-02-20 14:30:00+00:00", "2024-03-10 20:15:00+00:00"]
+                [
+                    "2024-01-15 18:00:00+00:00",
+                    "2024-02-20 14:30:00+00:00",
+                    "2024-03-10 20:15:00+00:00",
+                ]
             ),
             "channel_id": ["ch1", "ch1", "ch2"],
             "channel_title": ["Math Channel", "Math Channel", "Arabic Channel"],

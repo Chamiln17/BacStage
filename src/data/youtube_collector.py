@@ -141,7 +141,9 @@ class YouTubeCollector:
                 # Calculate results to fetch for this request
                 results_to_fetch = min(max_results_per_page, 50)
                 if max_videos:
-                    results_to_fetch = min(results_to_fetch, max_videos - len(video_ids))
+                    results_to_fetch = min(
+                        results_to_fetch, max_videos - len(video_ids)
+                    )
 
                 # Make API request
                 request = self.youtube.playlistItems().list(
@@ -668,9 +670,9 @@ class YouTubeCollector:
                 "subscriber_count": int(statistics.get("subscriberCount", 0)),
                 "video_count": int(statistics.get("videoCount", 0)),
                 "view_count": int(statistics.get("viewCount", 0)),
-                "uploads_playlist_id": content_details.get(
-                    "relatedPlaylists", {}
-                ).get("uploads", ""),
+                "uploads_playlist_id": content_details.get("relatedPlaylists", {}).get(
+                    "uploads", ""
+                ),
             }
 
         except HttpError as e:

@@ -33,7 +33,9 @@ class TestVideoFeatureEngineer:
 
     def test_fit_transform_success(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test successful feature engineering transformation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
+        engineer = VideoFeatureEngineer(
+            collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        )
         result = engineer.fit_transform(sample_raw_videos)
 
         # Check that new features were created
@@ -52,7 +54,9 @@ class TestVideoFeatureEngineer:
 
     def test_temporal_features(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test temporal feature creation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
+        engineer = VideoFeatureEngineer(
+            collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        )
         result = engineer._create_temporal_features(sample_raw_videos.copy())
 
         # Check evening upload detection
@@ -109,8 +113,10 @@ class TestVideoFeatureEngineer:
 
     def test_channel_features(self, sample_raw_videos: pd.DataFrame) -> None:
         """Test channel-level feature aggregation."""
-        engineer = VideoFeatureEngineer(collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc))
-        
+        engineer = VideoFeatureEngineer(
+            collection_date=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        )
+
         # Need to create engagement features first (channel features depend on engagement_score)
         df = sample_raw_videos.copy()
         df = engineer._create_engagement_features(df)

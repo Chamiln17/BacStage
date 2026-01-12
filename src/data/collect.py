@@ -48,8 +48,7 @@ def get_api_key() -> str:
 
     if not api_key or api_key == "your_api_key_here":
         raise ValueError(
-            "YOUTUBE_API_KEY not found or invalid. "
-            "Please set it in your .env file."
+            "YOUTUBE_API_KEY not found or invalid. " "Please set it in your .env file."
         )
 
     return api_key
@@ -60,13 +59,17 @@ def load_existing_data(file_path: Path) -> pd.DataFrame:
     if file_path.exists():
         try:
             df = pd.read_csv(file_path)
-            unique_channels = df["channel_id"].nunique() if "channel_id" in df.columns else 0
-            logger.info(f"Loaded existing data: {len(df)} records from {unique_channels} channels")
-            
+            unique_channels = (
+                df["channel_id"].nunique() if "channel_id" in df.columns else 0
+            )
+            logger.info(
+                f"Loaded existing data: {len(df)} records from {unique_channels} channels"
+            )
+
             if "snapshot_date" in df.columns:
                 unique_snapshots = df["snapshot_date"].nunique()
                 logger.info(f"  Existing snapshots: {unique_snapshots}")
-            
+
             return df
         except Exception as e:
             logger.error(f"Error loading existing data: {e}")
@@ -103,19 +106,23 @@ def merge_data(
     if mode == "append":
         logger.info(f"Append mode: keeping all {len(combined)} records")
         if "snapshot_date" in combined.columns:
-            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"], format="ISO8601")
-            
+            combined["snapshot_date"] = pd.to_datetime(
+                combined["snapshot_date"], format="ISO8601"
+            )
+
     elif mode == "dedupe":
         initial_count = len(combined)
-        
+
         if "snapshot_date" in combined.columns:
-            combined["snapshot_date"] = pd.to_datetime(combined["snapshot_date"], format="ISO8601")
+            combined["snapshot_date"] = pd.to_datetime(
+                combined["snapshot_date"], format="ISO8601"
+            )
             combined = combined.sort_values("snapshot_date", ascending=False)
             combined = combined.drop_duplicates(subset=["video_id"], keep="first")
             combined = combined.sort_values("snapshot_date", ascending=True)
         else:
             combined = combined.drop_duplicates(subset=["video_id"], keep="last")
-        
+
         duplicates_removed = initial_count - len(combined)
         logger.info(f"Dedupe mode: removed {duplicates_removed} older snapshots")
 
@@ -157,13 +164,15 @@ def get_video_comments_sample(
 
         for item in response.get("items", []):
             comment = item["snippet"]["topLevelComment"]["snippet"]
-            comments.append({
-                "video_id": video_id,
-                "comment_text": comment["textDisplay"],
-                "author": comment["authorDisplayName"],
-                "like_count": comment["likeCount"],
-                "published_at": comment["publishedAt"],
-            })
+            comments.append(
+                {
+                    "video_id": video_id,
+                    "comment_text": comment["textDisplay"],
+                    "author": comment["authorDisplayName"],
+                    "like_count": comment["likeCount"],
+                    "published_at": comment["publishedAt"],
+                }
+            )
     except Exception as e:
         logger.debug(f"Could not fetch comments for {video_id}: {e}")
 
@@ -195,63 +204,81 @@ Examples:
     )
 
     parser.add_argument(
-        "--channels", type=Path, required=True,
-        help="Path to channels CSV file (must have channel_id column)"
+        "--channels",
+        type=Path,
+        required=True,
+        help="Path to channels CSV file (must have channel_id column)",
     )
 
     parser.add_argument(
-        "--output", type=Path, default=Path("data/raw/videos_metadata.csv"),
-        help="Output path for video metadata (default: data/raw/videos_metadata.csv)"
+        "--output",
+        type=Path,
+        default=Path("data/raw/videos_metadata.csv"),
+        help="Output path for video metadata (default: data/raw/videos_metadata.csv)",
     )
 
     parser.add_argument(
-        "--channel-stats-output", type=Path, default=Path("data/raw/channel_statistics.csv"),
-        help="Output path for channel statistics (default: data/raw/channel_statistics.csv)"
+        "--channel-stats-output",
+        type=Path,
+        default=Path("data/raw/channel_statistics.csv"),
+        help="Output path for channel statistics (default: data/raw/channel_statistics.csv)",
     )
 
     parser.add_argument(
-        "--comments-output", type=Path, default=Path("data/raw/comments_sample.csv"),
-        help="Output path for comment samples (default: data/raw/comments_sample.csv)"
+        "--comments-output",
+        type=Path,
+        default=Path("data/raw/comments_sample.csv"),
+        help="Output path for comment samples (default: data/raw/comments_sample.csv)",
     )
 
     parser.add_argument(
-        "--registry", type=Path, default=Path("data/raw/video_registry.csv"),
-        help="Path to video registry CSV (default: data/raw/video_registry.csv)"
+        "--registry",
+        type=Path,
+        default=Path("data/raw/video_registry.csv"),
+        help="Path to video registry CSV (default: data/raw/video_registry.csv)",
     )
 
     parser.add_argument(
-        "--max-videos", type=int, default=None,
-        help="Max videos per channel (default: all)"
+        "--max-videos",
+        type=int,
+        default=None,
+        help="Max videos per channel (default: all)",
     )
 
     parser.add_argument(
-        "--max-quota", type=int, default=8000,
-        help="Maximum API quota to use (default: 8000)"
+        "--max-quota",
+        type=int,
+        default=8000,
+        help="Maximum API quota to use (default: 8000)",
     )
 
     parser.add_argument(
-        "--no-discover", action="store_true",
-        help="Skip discovery phase (only enrich known videos from registry)"
+        "--no-discover",
+        action="store_true",
+        help="Skip discovery phase (only enrich known videos from registry)",
     )
 
     parser.add_argument(
-        "--no-channel-stats", action="store_true",
-        help="Skip channel statistics collection"
+        "--no-channel-stats",
+        action="store_true",
+        help="Skip channel statistics collection",
     )
 
     parser.add_argument(
-        "--mode", choices=["append", "dedupe"], default="append",
-        help="Merge mode: 'append' keeps all snapshots, 'dedupe' keeps only latest (default: append)"
+        "--mode",
+        choices=["append", "dedupe"],
+        default="append",
+        help="Merge mode: 'append' keeps all snapshots, 'dedupe' keeps only latest (default: append)",
     )
 
     parser.add_argument(
-        "--collect-comments", action="store_true",
-        help="Also collect comment samples from top videos"
+        "--collect-comments",
+        action="store_true",
+        help="Also collect comment samples from top videos",
     )
 
     parser.add_argument(
-        "--no-backup", action="store_true",
-        help="Skip creating backup of existing data"
+        "--no-backup", action="store_true", help="Skip creating backup of existing data"
     )
 
     args = parser.parse_args()
@@ -318,8 +345,10 @@ Examples:
         for idx, row in channels_df.iterrows():
             channel_id = row["channel_id"]
             channel_name = row.get("channel_name", channel_id)
-            logger.info(f"[{idx+1}/{len(channels_df)}] Getting stats for {channel_name}")
-            
+            logger.info(
+                f"[{idx+1}/{len(channels_df)}] Getting stats for {channel_name}"
+            )
+
             stats = collector.get_channel_info(channel_id)
             if stats:
                 stats["snapshot_date"] = snapshot_date.isoformat()
@@ -345,15 +374,19 @@ Examples:
                 logger.warning("Quota limit reached during discovery")
                 break
 
-            logger.info(f"[{idx+1}/{len(channels_df)}] Discovering videos for {channel_name}")
+            logger.info(
+                f"[{idx+1}/{len(channels_df)}] Discovering videos for {channel_name}"
+            )
 
             try:
                 video_ids = collector.get_channel_videos(
                     channel_id, max_videos=args.max_videos
                 )
-                
+
                 if video_ids:
-                    added = registry.add_videos(video_ids, channel_id, source="uploads_playlist")
+                    added = registry.add_videos(
+                        video_ids, channel_id, source="uploads_playlist"
+                    )
                     logger.info(f"  Found {len(video_ids)} videos, {added} new")
                 else:
                     logger.warning(f"  No videos found for {channel_name}")
@@ -374,7 +407,9 @@ Examples:
     video_ids = registry.get_ids_for_enrichment(channel_ids=channel_ids)
 
     if not video_ids:
-        logger.warning("No videos to enrich. Make sure discovery ran or registry has videos.")
+        logger.warning(
+            "No videos to enrich. Make sure discovery ran or registry has videos."
+        )
         sys.exit(0)
 
     logger.info(f"Enriching {len(video_ids)} videos...")
@@ -404,7 +439,11 @@ Examples:
 
     # ===== PHASE 4: COMMENTS (optional) =====
     all_comments = []
-    if args.collect_comments and not new_df.empty and collector.quota_used < args.max_quota - 500:
+    if (
+        args.collect_comments
+        and not new_df.empty
+        and collector.quota_used < args.max_quota - 500
+    ):
         logger.info("\n" + "=" * 60)
         logger.info("PHASE 4: COMMENT SAMPLES")
         logger.info("=" * 60)
@@ -418,10 +457,10 @@ Examples:
 
             video_id = video_row["video_id"]
             comments = get_video_comments_sample(youtube, video_id, max_comments=10)
-            
+
             for comment in comments:
                 comment["snapshot_date"] = snapshot_date.isoformat()
-            
+
             all_comments.extend(comments)
             collector.quota_used += 1
 
@@ -453,7 +492,7 @@ Examples:
         logger.info(f"Previous records: {len(existing_df)}")
         logger.info(f"New records collected: {len(new_df)}")
         logger.info(f"Total records in dataset: {len(merged_df)}")
-        
+
         if "video_id" in merged_df.columns:
             logger.info(f"Unique videos: {merged_df['video_id'].nunique()}")
         if "channel_id" in merged_df.columns:
@@ -462,7 +501,7 @@ Examples:
             logger.info(f"Unique snapshots: {merged_df['snapshot_date'].nunique()}")
         if args.collect_comments:
             logger.info(f"Comments collected: {len(all_comments)}")
-            
+
         logger.info(f"Saved to: {args.output}")
         logger.info(f"Total quota used: {collector.quota_used}")
 

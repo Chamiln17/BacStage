@@ -71,7 +71,9 @@ def save_raw_response(
     return file_path
 
 
-def parse_videos_response(response: Dict[str, Any], snapshot_date: datetime, run_id: str) -> List[Dict[str, Any]]:
+def parse_videos_response(
+    response: Dict[str, Any], snapshot_date: datetime, run_id: str
+) -> List[Dict[str, Any]]:
     """
     Parse a videos.list API response into structured video metadata records.
 
@@ -130,10 +132,12 @@ def parse_playlist_items_response(response: Dict[str, Any]) -> List[Dict[str, st
 
         video_id = content_details.get("videoId", "")
         if video_id:
-            items.append({
-                "video_id": video_id,
-                "publish_date": snippet.get("publishedAt", ""),
-            })
+            items.append(
+                {
+                    "video_id": video_id,
+                    "publish_date": snippet.get("publishedAt", ""),
+                }
+            )
 
     return items
 
