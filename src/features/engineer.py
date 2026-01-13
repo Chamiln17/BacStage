@@ -136,7 +136,7 @@ class VideoFeatureEngineer:
         - publish_day_of_week: Day name (Monday-Sunday)
         - publish_month, publish_year: Month and year numbers
         - is_evening_upload: Binary (17-21h)
-        - is_weekday: Binary (Mon-Fri)
+        - is_weekday: Binary (Sun-Thu)
 
         Args:
             df: DataFrame with publish_date column
@@ -160,7 +160,7 @@ class VideoFeatureEngineer:
 
         # Weekday upload
         df["is_weekday"] = (
-            ~df["publish_day_of_week"].isin(["Saturday", "Sunday"])
+            ~df["publish_day_of_week"].isin(["Saturday", "Friday"])
         ).astype(int)
 
         logger.debug(
