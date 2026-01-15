@@ -6,9 +6,13 @@ All pipeline operations use a single entry point: `run_pipeline.py`
 
 ### Full Pipeline (Recommended)
 
-Run everything in one command: collect, engineer features, and analyze.
+Run everything in one command: collect, filter, engineer features, and analyze.
 
 ```bash
+# With Bac 3AS filtering (recommended)
+uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv --filter
+
+# Without filtering
 uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
 ```
 
@@ -17,6 +21,9 @@ uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
 ```bash
 # Collect data (discovery + enrichment + channel stats)
 uv run python run_pipeline.py collect --channels data/raw/channels.csv
+
+# Apply data-driven Bac 3AS filter
+uv run python run_pipeline.py filter_data
 
 # Build ML features from collected data
 uv run python run_pipeline.py engineer
@@ -27,12 +34,12 @@ uv run python run_pipeline.py analyze
 
 ## Common Workflows
 
-### Workflow 1: Initial Collection
+### Workflow 1: Initial Collection with Filtering
 
 ```bash
 # 1. Prepare channels.csv with your channels
-# 2. Run full pipeline
-uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv
+# 2. Run full pipeline with filtering
+uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv --filter
 
 # 3. Explore data in notebook
 jupyter notebook notebooks/01_data_exploration.ipynb
@@ -52,8 +59,22 @@ uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-disc
 # 2. Run collection (will discover new videos automatically)
 uv run python run_pipeline.py collect --channels data/raw/channels.csv
 
-# 3. Re-engineer features
-uv run python run_pipeline.py engineer
+# 3. Re-run filter and engineer features
+uv run python run_pipeline.py filter_data --force-discovery
+uv run python run_pipeline.py engineer --input data/processed/videos_bac_only.csv
+```
+
+### Workflow 4: Re-run Filtering Only
+
+```bash
+# Skip discovery (use cached channel priors and TF-IDF terms)
+uv run python run_pipeline.py filter_data --skip-discovery
+
+# Force re-discovery (quarterly maintenance)
+uv run python run_pipeline.py filter_data --force-discovery
+
+# Generate validation samples for manual review
+uv run python run_pipeline.py filter_data --validate
 ```
 
 ## Collection Options
@@ -81,6 +102,34 @@ uv run python run_pipeline.py collect --channels data/raw/channels.csv --collect
 uv run python run_pipeline.py collect --channels data/raw/channels.csv --no-backup
 ```
 
+## Filtering Options (filter_data)
+
+```bash
+# Run full filter (discovery + filter)
+uv run python run_pipeline.py filter_data
+
+# Skip discovery if artifacts already exist
+uv run python run_pipeline.py filter_data --skip-discovery
+
+# Force re-run discovery even if artifacts exist
+uv run python run_pipeline.py filter_data --force-discovery
+
+# Generate validation samples after filtering
+uv run python run_pipeline.py filter_data --validate
+
+# Use custom config file
+uv run python run_pipeline.py filter_data --config config/my_config.yaml
+
+# Specify custom input/output
+uv run python run_pipeline.py filter_data --input data/raw/videos_metadata.csv --output-dir data/processed
+```
+
+The filter automatically:
+- Builds channel priors (which channels are Bac-heavy)
+- Discovers TF-IDF keywords (high-signal Bac terms)
+- Applies balanced filtering rules
+- Generates validation samples (with `--validate`)
+
 ## File Locations
 
 ```
@@ -91,8 +140,17 @@ data/
 │   ├── video_registry.csv        <- Known video IDs
 │   ├── channel_statistics.csv    <- Channel stats
 │   └── comments_sample.csv       <- Comments (optional)
-└── processed/
-    └── videos_engineered.csv     <- ML-ready features
+├── processed/
+│   ├── channel_priors.csv        <- Auto-computed channel Bac ratios
+│   ├── tfidf_bac_terms.json      <- Auto-discovered Bac keywords
+│   ├── videos_bac_balanced.csv   <- All videos with filter columns
+│   ├── videos_bac_only.csv       <- Bac 3AS videos only (for ML)
+│   ├── videos_rejected.csv       <- Rejected videos (for analysis)
+│   └── videos_engineered.csv     <- ML-ready features
+├── validation/
+│   └── sample_for_manual_review.csv <- Validation samples
+└── config/
+    └── filter_config.yaml        <- Filter tuning parameters
 ```
 
 ## Quick Analysis

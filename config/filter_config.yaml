@@ -1,0 +1,82 @@
+# Bac 3AS Filter Configuration
+# =============================
+# This file contains tunable parameters for the data-driven filtering system.
+# Adjust these values based on validation results to balance precision vs recall.
+
+# Channel prior thresholds
+# Used to determine which channels are "Bac-heavy" based on their content
+channel_prior:
+  bac_threshold: 0.7 # p_bac >= 0.7 to mark Bac-heavy (70% of grade-marked videos are Bac)
+  non_bac_max: 0.1 # p_non <= 0.1 to mark Bac-heavy (max 10% non-Bac content)
+
+# Soft positive rules (OR logic by default)
+# For ambiguous videos in Bac-heavy channels, require at least one soft positive
+soft_positives:
+  duration_min: 300 # seconds (5 minutes) - filters out short clips/teasers
+  require_tfidf: false # if true, TF-IDF hit is mandatory for ambiguous videos
+  require_duration: false # if true, duration gate is mandatory for ambiguous videos
+  allow_channel_subject: true # use channels.csv subject as a soft positive
+
+# TF-IDF discovery parameters
+# Controls how automatic keyword discovery works
+tfidf:
+  top_n_terms: 100 # Number of top discriminative terms to keep
+  min_df: 5 # Minimum document frequency (ignore rare terms)
+  max_df: 0.8 # Maximum document frequency (ignore very common terms)
+  ngram_range: [1, 2] # Unigrams + bigrams
+  analyzer: "char_wb" # Character n-grams with word boundaries (good for Arabic)
+
+# Grade markers (minimal set, expand only when validated)
+# These are the core markers for Bac vs non-Bac detection
+markers:
+  # Positive markers: indicate Bac / 3AS content
+  bac:
+    - bac
+    - 3as
+    - بكالوريا
+    - باك
+    - ثالثة ثانوي
+    - السنة الثالثة ثانوي
+    - terminale
+
+  # Negative markers: indicate non-Bac content (1AS, 2AS, middle school, primary)
+  non_bac:
+    - 1as
+    - 2as
+    - سنة أولى ثانوي
+    - سنة ثانية ثانوي
+    - أولى ثانوي
+    - ثانية ثانوي
+    - متوسط
+    - bem
+    - 1am
+    - 2am
+    - 3am
+    - 4am
+    - ابتدائي
+
+  # Strong Bac intent phrases: override non-Bac markers in conflict cases
+  strong_bac_intent:
+    - مراجعة بكالوريا
+    - تحضير بكالوريا
+    - تصحيح بكالوريا
+    - موضوع بكالوريا
+    - حل موضوع بكالوريا
+    - bac blanc
+    - révision bac
+    - corrigé bac
+    - sujet bac
+
+# Output paths (relative to project root)
+paths:
+  input: data/raw/videos_metadata.csv
+  channels: data/raw/channels.csv
+  output_dir: data/processed
+  validation_dir: data/validation
+
+# Validation sampling configuration
+validation:
+  sample_bac_3as: 100 # Sample size for precision check
+  sample_bac_ambiguous: 100 # Sample size for soft positive check
+  sample_non_bac: 50 # Sample size for false negative check
+  sample_conflict: 50 # Sample size for conflict override check
