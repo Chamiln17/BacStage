@@ -8,7 +8,7 @@ enabling efficient incremental updates without re-discovering videos.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, cast
 
 import pandas as pd
 
@@ -61,6 +61,7 @@ class VideoRegistry:
         """Get the registry DataFrame, loading if necessary."""
         if self._data is None:
             self.load()
+        assert self._data is not None, "Data should be loaded"
         return self._data
 
     def load(self) -> pd.DataFrame:
@@ -124,6 +125,9 @@ class VideoRegistry:
         if self._data is None:
             self.load()
 
+        # After load(), _data is guaranteed to be a DataFrame
+        assert self._data is not None, "Data should be loaded"
+
         now = datetime.now().isoformat()
         existing_ids = set(self._data["video_id"].tolist())
         new_count = 0
@@ -162,7 +166,7 @@ class VideoRegistry:
         Returns:
             List of all video IDs
         """
-        return self.data["video_id"].tolist()
+        return cast(List[str], self.data["video_id"].tolist())
 
     def get_video_ids_for_channel(self, channel_id: str) -> List[str]:
         """
@@ -175,7 +179,7 @@ class VideoRegistry:
             List of video IDs for the channel
         """
         mask = self.data["channel_id"] == channel_id
-        return self.data.loc[mask, "video_id"].tolist()
+        return cast(List[str], self.data.loc[mask, "video_id"].tolist())
 
     def get_ids_for_enrichment(
         self,
@@ -197,7 +201,7 @@ class VideoRegistry:
         if channel_ids:
             df = df[df["channel_id"].isin(channel_ids)]
 
-        video_ids = df["video_id"].tolist()
+        video_ids = cast(List[str], df["video_id"].tolist())
 
         if limit:
             video_ids = video_ids[:limit]
@@ -206,7 +210,7 @@ class VideoRegistry:
 
     def get_unique_channels(self) -> List[str]:
         """Get list of unique channel IDs in the registry."""
-        return self.data["channel_id"].unique().tolist()
+        return cast(List[str], self.data["channel_id"].unique().tolist())
 
     def count(self) -> int:
         """Get total number of videos in registry."""

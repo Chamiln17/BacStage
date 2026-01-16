@@ -19,7 +19,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 
 # Fix console encoding for Windows
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
 
 def get_api_key() -> str:
@@ -148,8 +149,8 @@ def create_backup(file_path: Path) -> Optional[Path]:
 
 
 def get_video_comments_sample(
-    youtube_client, video_id: str, max_comments: int = 10
-) -> List[Dict]:
+    youtube_client: Any, video_id: str, max_comments: int = 10
+) -> List[Dict[str, Any]]:
     """Get sample of top comments from a video."""
     comments = []
     try:
@@ -345,8 +346,9 @@ Examples:
         for idx, row in channels_df.iterrows():
             channel_id = row["channel_id"]
             channel_name = row.get("channel_name", channel_id)
+            idx_int = int(idx) if isinstance(idx, (int, float)) else 0
             logger.info(
-                f"[{idx+1}/{len(channels_df)}] Getting stats for {channel_name}"
+                f"[{idx_int+1}/{len(channels_df)}] Getting stats for {channel_name}"
             )
 
             stats = collector.get_channel_info(channel_id)
@@ -369,13 +371,14 @@ Examples:
         for idx, row in channels_df.iterrows():
             channel_id = row["channel_id"]
             channel_name = row.get("channel_name", channel_id)
+            idx_int = int(idx) if isinstance(idx, (int, float)) else 0
 
             if collector.quota_used >= args.max_quota:
                 logger.warning("Quota limit reached during discovery")
                 break
 
             logger.info(
-                f"[{idx+1}/{len(channels_df)}] Discovering videos for {channel_name}"
+                f"[{idx_int+1}/{len(channels_df)}] Discovering videos for {channel_name}"
             )
 
             try:

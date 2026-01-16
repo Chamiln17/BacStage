@@ -69,3 +69,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --cov=src --cov-report=term-missing"
+
+[dependency-groups]
+dev = [
+    "pandas-stubs>=2.3.3.260113",
+    "types-tqdm>=4.67.0.20250809",
+]

@@ -10,7 +10,7 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ def _get_thumbnail_url(snippet: Dict[str, Any]) -> str:
     # Prefer medium, then default, then any available
     for quality in ["medium", "default", "high", "standard", "maxres"]:
         if quality in thumbnails:
-            return thumbnails[quality].get("url", "")
+            return cast(str, thumbnails[quality].get("url", ""))
     return ""
 
 
@@ -200,4 +200,4 @@ def load_raw_response(file_path: Path) -> Dict[str, Any]:
         json.JSONDecodeError: If file is not valid JSON
     """
     with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return cast(Dict[str, Any], json.load(f))

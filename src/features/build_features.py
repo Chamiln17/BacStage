@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 # Fix console encoding for Windows
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
 
 def main() -> None:

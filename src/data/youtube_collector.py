@@ -13,11 +13,11 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from googleapiclient.discovery import build  # type: ignore[import-untyped]
+from googleapiclient.errors import HttpError  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class YouTubeCollector:
                 return None
 
             channel = response["items"][0]
-            uploads_id = channel["contentDetails"]["relatedPlaylists"]["uploads"]
+            uploads_id = cast(str, channel["contentDetails"]["relatedPlaylists"]["uploads"])
 
             logger.debug(f"Channel {channel_id} uploads playlist: {uploads_id}")
             return uploads_id
@@ -473,7 +473,7 @@ class YouTubeCollector:
         thumbnails = snippet.get("thumbnails", {})
         for quality in ["medium", "default", "high", "standard", "maxres"]:
             if quality in thumbnails:
-                return thumbnails[quality].get("url", "")
+                return cast(str, thumbnails[quality].get("url", ""))
         return ""
 
     @staticmethod
@@ -557,9 +557,10 @@ class YouTubeCollector:
 
         for idx, channel_row in channels_df.iterrows():
             channel_id = channel_row["channel_id"]
-            channel_name = channel_row.get("channel_name", f"Channel_{idx+1}")
+            idx_int = int(idx) if isinstance(idx, (int, float)) else 0
+            channel_name = channel_row.get("channel_name", f"Channel_{idx_int+1}")
 
-            logger.info(f"[{idx+1}/{total_channels}] Processing: {channel_name}")
+            logger.info(f"[{idx_int+1}/{total_channels}] Processing: {channel_name}")
 
             # Check quota before starting
             if self.quota_used >= max_quota:
