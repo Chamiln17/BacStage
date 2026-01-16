@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +147,28 @@ class VideoFeatureEngineer:
         Create temporal features from publish date.
 
         Features created:
+        Basic temporal:
         - days_since_publish: Age of video in days
         - publish_hour: Hour of day (0-23)
         - publish_day_of_week: Day name (Monday-Sunday)
         - publish_month, publish_year: Month and year numbers
         - is_evening_upload: Binary (17-21h)
         - is_weekday: Binary (Sun-Thu)
+        
+        Cyclic encoding (Phase 1 improvements):
+        - publish_hour_sin, publish_hour_cos: Cyclic encoding of hour (24h cycle)
+        - publish_month_sin, publish_month_cos: Cyclic encoding of month (12-month cycle)
+        - publish_day_of_month: Day of month (1-31)
+        - publish_day_of_month_sin, publish_day_of_month_cos: Cyclic encoding of day of month
+        
+        Polynomial features:
+        - days_since_publish_squared: Non-linear decay effect
+        - log_days_since_publish: Log transform for better scaling
+        
+        Interaction features:
+        - days_since_publish_x_hour: Recency × upload time interaction
+        - is_weekday_x_hour: Weekday × upload hour interaction
+        - days_since_publish_x_is_weekday: Recency × weekday interaction
 
         Args:
             df: DataFrame with publish_date column
@@ -167,6 +184,7 @@ class VideoFeatureEngineer:
         df["publish_day_of_week"] = df["publish_date"].dt.day_name()
         df["publish_month"] = df["publish_date"].dt.month
         df["publish_year"] = df["publish_date"].dt.year
+        df["publish_day_of_month"] = df["publish_date"].dt.day
 
         # Evening upload (5-9 PM, optimal time per research)
         df["is_evening_upload"] = (
@@ -178,9 +196,40 @@ class VideoFeatureEngineer:
             ~df["publish_day_of_week"].isin(["Saturday", "Friday"])
         ).astype(int)
 
+        # PHASE 1: Cyclic encoding for time features
+        # Hour: 24-hour cycle (preserves continuity: 23h is close to 0h)
+        df["publish_hour_sin"] = np.sin(2 * np.pi * df["publish_hour"] / 24)
+        df["publish_hour_cos"] = np.cos(2 * np.pi * df["publish_hour"] / 24)
+        
+        # Month: 12-month cycle
+        df["publish_month_sin"] = np.sin(2 * np.pi * df["publish_month"] / 12)
+        df["publish_month_cos"] = np.cos(2 * np.pi * df["publish_month"] / 12)
+        
+        # Day of month: 31-day cycle (approximate month length)
+        df["publish_day_of_month_sin"] = np.sin(2 * np.pi * df["publish_day_of_month"] / 31)
+        df["publish_day_of_month_cos"] = np.cos(2 * np.pi * df["publish_day_of_month"] / 31)
+
+        # PHASE 1: Polynomial features for non-linear relationships
+        # Square of days (captures accelerated decay/growth patterns)
+        df["days_since_publish_squared"] = df["days_since_publish"] ** 2
+        
+        # Log transform (handles exponential growth/decay, reduces skew)
+        df["log_days_since_publish"] = np.log1p(df["days_since_publish"])  # log1p = log(1+x) to handle 0
+
+        # PHASE 1: Time-based interaction features
+        # Recency × upload time (fresh content at different hours may perform differently)
+        df["days_since_publish_x_hour"] = df["days_since_publish"] * df["publish_hour"]
+        
+        # Weekday × upload hour (timing effects differ on weekends vs weekdays)
+        df["is_weekday_x_hour"] = df["is_weekday"] * df["publish_hour"]
+        
+        # Recency × weekday (weekend content may age differently)
+        df["days_since_publish_x_is_weekday"] = df["days_since_publish"] * df["is_weekday"]
+
         logger.debug(
             f"Temporal features: evening={df['is_evening_upload'].sum()}, "
-            f"weekday={df['is_weekday'].sum()}"
+            f"weekday={df['is_weekday'].sum()}, "
+            f"cyclic features added: 6, interaction features added: 3"
         )
 
         return df
@@ -350,7 +399,7 @@ class VideoFeatureEngineer:
                 {
                     "video_id": "count",
                     "view_count": "mean",
-                    "engagement_score": "mean",
+                    "duration_sec": "mean",
                     "publish_date": "min",
                 }
             )
@@ -358,7 +407,7 @@ class VideoFeatureEngineer:
                 columns={
                     "video_id": "channel_video_count",
                     "view_count": "channel_avg_views",
-                    "engagement_score": "channel_avg_engagement",
+                    "duration_sec": "channel_video_avg_duration",
                 }
             )
         )
@@ -395,13 +444,30 @@ class VideoFeatureEngineer:
             "title",
             "channel_id",
             "channel_title",
-            # Temporal
+            # Temporal (basic)
             "publish_date",
             "days_since_publish",
             "publish_hour",
             "publish_day_of_week",
+            "publish_month",
+            "publish_year",
+            "publish_day_of_month",
             "is_evening_upload",
             "is_weekday",
+            # Temporal (Phase 1: Cyclic encoding)
+            "publish_hour_sin",
+            "publish_hour_cos",
+            "publish_month_sin",
+            "publish_month_cos",
+            "publish_day_of_month_sin",
+            "publish_day_of_month_cos",
+            # Temporal (Phase 1: Polynomial)
+            "days_since_publish_squared",
+            "log_days_since_publish",
+            # Temporal (Phase 1: Interactions)
+            "days_since_publish_x_hour",
+            "is_weekday_x_hour",
+            "days_since_publish_x_is_weekday",
             # Content
             "duration_sec",
             "title_length",
@@ -420,7 +486,7 @@ class VideoFeatureEngineer:
             # Channel
             "channel_video_count",
             "channel_avg_views",
-            "channel_avg_engagement",
+            "channel_video_avg_duration",
             "channel_age_days",
         ]
 
