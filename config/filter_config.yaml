@@ -12,7 +12,7 @@ channel_prior:
 # Soft positive rules (OR logic by default)
 # For ambiguous videos in Bac-heavy channels, require at least one soft positive
 soft_positives:
-  duration_min: 300 # seconds (5 minutes) - filters out short clips/teasers
+  duration_min: 120 # seconds (2 minutes) - filters out short clips/teasers
   require_tfidf: false # if true, TF-IDF hit is mandatory for ambiguous videos
   require_duration: true # if true, duration gate is mandatory for ambiguous videos
   allow_channel_subject: true # use channels.csv subject as a soft positive
@@ -44,6 +44,29 @@ markers:
     - جميع الشعب
     - شعب علمية
     - شعب أدبية
+    # Curriculum-based markers (3AS-only topics from official منهاج)
+    # Math topics (highest priority - fixes errors from مرنيز وليد, عبد الباسط)
+    - الأعداد المركبة
+    - التكامل
+    - الدوال الأصلية
+    - النهايات
+    - الدالة الأسية
+    - الدالة اللوغاريتمية
+    - التحويلات النقطية
+    - المتتاليات العددية
+    - الهندسة في الفضاء
+    # Biology topics (fixes errors from شاوش)
+    - الاتصال العصبي
+    - المناعة
+    - التركيب الضوئي
+    - التحولات الطاقوية
+    # Physics topics
+    - التحولات النووية
+    - ثنائي القطب RC
+    - ثنائي القطب RL
+    - التطورات المهتزة
+    # History topics
+    - القطبية الثنائية
 
   # Negative markers: indicate non-Bac content (1AS, 2AS, middle school, primary)
   non_bac:
