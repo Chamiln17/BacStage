@@ -96,7 +96,9 @@ class YouTubeCollector:
                 return None
 
             channel = response["items"][0]
-            uploads_id = cast(str, channel["contentDetails"]["relatedPlaylists"]["uploads"])
+            uploads_id = cast(
+                str, channel["contentDetails"]["relatedPlaylists"]["uploads"]
+            )
 
             logger.debug(f"Channel {channel_id} uploads playlist: {uploads_id}")
             return uploads_id

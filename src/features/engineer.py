@@ -25,13 +25,15 @@ class VideoFeatureEngineer:
     - Channel-level features
     """
 
-    def __init__(self, collection_date: Optional[datetime] = None) -> None:
+    def __init__(self, collection_date: Optional[datetime] = None, channels_path: Optional[str] = None) -> None:
         """
         Initialize feature engineer.
 
         Args:
             collection_date: Reference date for calculating recency features.
                            Defaults to current datetime if not provided.
+            channels_path: Path to channels.csv with subject labels.
+                          Defaults to data/raw/channels.csv if not provided.
         """
         if collection_date is None:
             # Make timezone-aware to match API data
@@ -45,6 +47,19 @@ class VideoFeatureEngineer:
             collection_date = collection_date.replace(tzinfo=timezone.utc)
 
         self.collection_date = collection_date
+        
+        # Load channel subjects
+        if channels_path is None:
+            from pathlib import Path
+            channels_path = Path("data/raw/channels.csv")
+        
+        try:
+            self.channels_df = pd.read_csv(channels_path)
+            logger.info(f"Loaded {len(self.channels_df)} channels with subjects")
+        except FileNotFoundError:
+            logger.warning(f"channels.csv not found at {channels_path}, subject column will be missing")
+            self.channels_df = None
+        
         logger.info(
             f"Feature engineer initialized with collection date: {self.collection_date}"
         )
@@ -201,8 +216,23 @@ class VideoFeatureEngineer:
         else:
             df["tag_count"] = 0
 
-        # Subject detection
-        df["subject"] = df.apply(self._extract_subject, axis=1)
+        # Subject from channel (merge from channels.csv)
+        if self.channels_df is not None and "channel_id" in df.columns:
+            # Drop existing subject column if present
+            if 'subject' in df.columns:
+                df = df.drop(columns=['subject'])
+            
+            df = df.merge(
+                self.channels_df[['channel_id', 'subjects']],
+                on='channel_id',
+                how='left'
+            )
+            df = df.rename(columns={'subjects': 'subject'})
+            df['subject'] = df['subject'].fillna('Unknown')
+            logger.debug(f"Assigned subjects from channels: {df['subject'].value_counts().to_dict()}")
+        else:
+            df['subject'] = 'Unknown'
+            logger.warning("No channel subjects available, all videos marked as Unknown")
 
         # Exam-focused content detection
         exam_keywords = [
@@ -223,77 +253,10 @@ class VideoFeatureEngineer:
         ).astype(int)
 
         logger.debug(
-            f"Text features: subjects={df['subject'].value_counts().to_dict()}, "
-            f"exam_focused={df['is_exam_focused'].sum()}"
+            f"Text features: exam_focused={df['is_exam_focused'].sum()}"
         )
 
         return df
-
-    @staticmethod
-    def _extract_subject(row: pd.Series) -> str:
-        """
-        Classify video by subject based on title and description keywords.
-
-        Args:
-            row: DataFrame row with 'title' and 'description' columns
-
-        Returns:
-            Subject category string
-        """
-        text = (str(row["title"]) + " " + str(row["description"])).lower()
-
-        # Subject keyword mappings
-        subjects = {
-            "Math": [
-                "math",
-                "رياضيات",
-                "calcul",
-                "integral",
-                "derivative",
-                "equation",
-                "algebra",
-                "geometry",
-            ],
-            "Physics": [
-                "physics",
-                "فيزياء",
-                "force",
-                "energy",
-                "motion",
-                "newton",
-                "électricité",
-                "mécanique",
-            ],
-            "Science": [
-                "science",
-                "علوم",
-                "chemistry",
-                "كيمياء",
-                "biology",
-                "أحياء",
-                "chimie",
-                "biologie",
-                "svt",
-            ],
-            "Arabic": [
-                "arabic",
-                "عربية",
-                "literature",
-                "poem",
-                "grammar",
-                "littérature",
-                "langue",
-            ],
-            "Philosophy": ["philosophy", "فلسفة", "philosophie"],
-            "French": ["français", "french", "francais"],
-            "English": ["english", "anglais"],
-        }
-
-        for subject, keywords in subjects.items():
-            if any(keyword in text for keyword in keywords):
-                return subject
-
-        return "General"
 
     def _create_engagement_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

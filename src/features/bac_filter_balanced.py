@@ -118,7 +118,9 @@ class BalancedBacFilter:
 
         self._bac_pattern: re.Pattern[str] = make_pattern(self.bac_markers)
         self._non_bac_pattern: re.Pattern[str] = make_pattern(self.non_bac_markers)
-        self._strong_intent_pattern: re.Pattern[str] = make_pattern(self.strong_bac_intent)
+        self._strong_intent_pattern: re.Pattern[str] = make_pattern(
+            self.strong_bac_intent
+        )
 
         self._tfidf_pattern: Optional[re.Pattern[str]]
         if self.tfidf_terms:
