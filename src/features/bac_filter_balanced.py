@@ -207,6 +207,16 @@ class BalancedBacFilter:
         
         # Decision tree
         
+        # Rule 0: Hard duration filter (if require_duration is True, apply globally)
+        if self.require_duration and duration_sec < self.duration_min:
+            return {
+                "is_bac_3as": False,
+                "filter_category": "non_bac",
+                "filter_confidence": 0.8,
+                "filter_reason": f"Video too short ({duration_sec:.0f}s < {self.duration_min}s minimum)",
+                "subject": subject,
+            }
+        
         # Rule 1: Hard exclude (non-Bac markers, unless strong intent override)
         if has_non_bac and not has_bac:
             if has_strong_intent:

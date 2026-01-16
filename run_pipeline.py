@@ -614,9 +614,26 @@ def cmd_filter_data(args: argparse.Namespace) -> int:
             combined_sample["notes"] = ""
             
             sample_path = validation_dir / "sample_for_manual_review.csv"
-            combined_sample.to_csv(sample_path, index=False)
-            logger.info(f"\nValidation sample saved: {sample_path}")
-            logger.info(f"Total samples: {len(combined_sample)}")
+            
+            # Try to save, with fallback if file is locked
+            try:
+                combined_sample.to_csv(sample_path, index=False)
+                logger.info(f"\nValidation sample saved: {sample_path}")
+                logger.info(f"Total samples: {len(combined_sample)}")
+            except PermissionError:
+                # File is locked (likely open in Excel/Jupyter)
+                # Save with timestamp instead
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = validation_dir / f"sample_for_manual_review_{timestamp}.csv"
+                combined_sample.to_csv(backup_path, index=False)
+                logger.warning(f"\n⚠️  Original file is locked (open in another program)")
+                logger.warning(f"Saved validation sample to: {backup_path}")
+                logger.info(f"Total samples: {len(combined_sample)}")
+                logger.info(f"\nTo use the new sample:")
+                logger.info(f"  1. Close {sample_path.name} in Excel/Jupyter")
+                logger.info(f"  2. Rename {backup_path.name} to {sample_path.name}")
+                logger.info(f"  OR use the timestamped file directly")
     
     logger.info("\n" + "=" * 60)
     logger.info("FILTER COMPLETE")
