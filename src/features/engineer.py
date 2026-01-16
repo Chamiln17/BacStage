@@ -444,6 +444,7 @@ class VideoFeatureEngineer:
             "title",
             "channel_id",
             "channel_title",
+            "description",
             # Temporal (basic)
             "publish_date",
             "days_since_publish",
