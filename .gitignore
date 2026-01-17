@@ -28,7 +28,6 @@ data/raw/*_backup_*.csv
 #data/raw/comments_sample.csv
 
 # Processed/engineered data (regeneratable from raw)
-data/processed/*.csv
 
 # Keep example files and channels.csv
 !*.csv.example
