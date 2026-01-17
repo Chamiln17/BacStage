@@ -447,28 +447,6 @@ class VideoFeatureEngineer:
             "description",
             # Temporal (basic)
             "publish_date",
-            "days_since_publish",
-            "publish_hour",
-            "publish_day_of_week",
-            "publish_month",
-            "publish_year",
-            "publish_day_of_month",
-            "is_evening_upload",
-            "is_weekday",
-            # Temporal (Phase 1: Cyclic encoding)
-            "publish_hour_sin",
-            "publish_hour_cos",
-            "publish_month_sin",
-            "publish_month_cos",
-            "publish_day_of_month_sin",
-            "publish_day_of_month_cos",
-            # Temporal (Phase 1: Polynomial)
-            "days_since_publish_squared",
-            "log_days_since_publish",
-            # Temporal (Phase 1: Interactions)
-            "days_since_publish_x_hour",
-            "is_weekday_x_hour",
-            "days_since_publish_x_is_weekday",
             # Content
             "duration_sec",
             "title_length",
