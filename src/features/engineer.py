@@ -328,13 +328,21 @@ class VideoFeatureEngineer:
         # Avoid division by zero
         safe_views = df["view_count"].replace(0, 1)
 
+        # Ratios
         df["like_ratio"] = df["like_count"] / safe_views
         df["comment_ratio"] = df["comment_count"] / safe_views
 
-        # Engagement score: comments weighted 2x (deeper engagement)
+        # Age Factor: min(1.0, days_since_publish / 365)
+        # Using 365.25 days for year duration approximation
+        df["age_factor"] = (df["days_since_publish"] / 365.25).clip(upper=0.50)
+
+        # Enhanced Weighted Engagement Score
+        # Formula: (0.4 * LikeRatio + 0.5 * CommentRatio + 0.1 * AgeFactor) * 100
         df["engagement_score"] = (
-            df["like_count"] + 2 * df["comment_count"]
-        ) / safe_views
+            0.40 * df["like_ratio"] +
+            0.50 * df["comment_ratio"] +
+            0.10 * df["age_factor"]
+        ) * 100
 
         # Engagement category (based on percentiles)
         df["engagement_category"] = self._categorize_engagement(df["engagement_score"])
