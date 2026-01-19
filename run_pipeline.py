@@ -121,6 +121,18 @@ def cmd_engineer(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_transcripts(args: argparse.Namespace) -> int:
+    """Collect YouTube transcripts."""
+    from src.data.transcript_collector import collect_transcripts_cli
+    return collect_transcripts_cli(args.input, args.output, args.proxy)
+
+
+def cmd_transcript_features(args: argparse.Namespace) -> int:
+    """Extract features from transcripts."""
+    from src.features.transcript_features import extract_features_cli
+    return extract_features_cli(args.input, args.output, args.videos)
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Quick analysis of collected data."""
     import pandas as pd
@@ -832,6 +844,42 @@ Examples:
         help="Output engineered features CSV"
     )
     engineer_parser.set_defaults(func=cmd_engineer)
+    
+    # ===== TRANSCRIPTS =====
+    transcripts_parser = subparsers.add_parser(
+        "transcripts", help="Collect YouTube transcripts"
+    )
+    transcripts_parser.add_argument(
+        "--input", type=Path, required=True,
+        help="Input CSV with video IDs"
+    )
+    transcripts_parser.add_argument(
+        "--output", type=Path, required=True,
+        help="Output CSV for transcripts"
+    )
+    transcripts_parser.add_argument(
+        "--proxy", type=str, default=None,
+        help="Optional proxy URL (e.g. http://user:pass@host:port)"
+    )
+    transcripts_parser.set_defaults(func=cmd_transcripts)
+    
+    # ===== TRANSCRIPT-FEATURES =====
+    tf_parser = subparsers.add_parser(
+        "transcript-features", help="Extract features from transcripts"
+    )
+    tf_parser.add_argument(
+        "--input", type=Path, required=True,
+        help="Input CSV with transcripts"
+    )
+    tf_parser.add_argument(
+        "--output", type=Path, required=True,
+        help="Output CSV for transcript features"
+    )
+    tf_parser.add_argument(
+        "--videos", type=Path, default=None,
+        help="Optional videos CSV for duration/subject data"
+    )
+    tf_parser.set_defaults(func=cmd_transcript_features)
     
     # ===== ANALYZE =====
     analyze_parser = subparsers.add_parser(

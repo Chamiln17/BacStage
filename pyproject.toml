@@ -21,7 +21,11 @@ dependencies = [
     "lightgbm>=4.6.0",
     "ipykernel>=7.1.0",
     "transformers>=4.40.0,<4.50.0",
-    "torch==2.5.1",  # Pinned to match cu121 index
+    "torch==2.5.1", # Pinned to match cu121 index
+    "textstat>=0.7.12",
+    "pysocks>=1.7.1",
+    "yt-dlp>=2025.12.8",
+    "stem>=1.8.2",
 ]
 
 # PyTorch CUDA index for GPU support
