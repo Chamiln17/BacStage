@@ -328,20 +328,17 @@ class VideoFeatureEngineer:
         # Avoid division by zero
         safe_views = df["view_count"].replace(0, 1)
 
-        # Ratios
+        # Ratios (kept for potential feature use, but not in target)
         df["like_ratio"] = df["like_count"] / safe_views
         df["comment_ratio"] = df["comment_count"] / safe_views
 
-        # Age Factor: min(1.0, days_since_publish / 365)
-        # Using 365.25 days for year duration approximation
-        df["age_factor"] = (df["days_since_publish"] / 365.25).clip(upper=0.50)
-
-        # Enhanced Weighted Engagement Score
-        # Formula: (0.4 * LikeRatio + 0.5 * CommentRatio + 0.1 * AgeFactor) * 100
+        # Learning Interaction Rate (LIR) - Interpretable percentage
+        # For educational videos, comments indicate active learning (questions, discussions)
+        # Comments weighted 3x more than likes (learning signal)
+        # Output: percentage (e.g., "2.5% interaction rate")
+        # Interpretation: "For every 100 views, this video gets X weighted interactions"
         df["engagement_score"] = (
-            0.40 * df["like_ratio"] +
-            0.50 * df["comment_ratio"] +
-            0.10 * df["age_factor"]
+            (df["comment_count"] * 3 + df["like_count"]) / safe_views
         ) * 100
 
         # Engagement category (based on percentiles)

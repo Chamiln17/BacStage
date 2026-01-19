@@ -77,9 +77,10 @@ class TextEmbeddingExtractor:
             with torch.no_grad():
                 model_output = self.model(**encoded_input)
             
-            # Use [CLS] token embedding (first token)
+            # Use mean pooling (averages all token embeddings)
+            # Better for regression tasks - captures more information than CLS alone
             # Shape: (batch_size, 768)
-            batch_embeddings = model_output.last_hidden_state[:, 0, :].cpu().numpy()
+            batch_embeddings = model_output.last_hidden_state.mean(dim=1).cpu().numpy()
             embeddings.append(batch_embeddings)
             
         if not embeddings:
