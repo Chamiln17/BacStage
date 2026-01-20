@@ -32,26 +32,130 @@ import yt_dlp
 
 logger = logging.getLogger(__name__)
 
-def renew_tor_identity(control_port=9151, password=None):
+def get_current_ip(proxies: Optional[dict] = None) -> Optional[str]:
+    """Get current public IP address."""
+    try:
+        resp = requests.get("https://api.ipify.org?format=json", proxies=proxies, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("ip")
+    except Exception:
+        pass
+    return None
+
+# ============================================================================
+# TIER 3: SMART RETRY QUEUE
+# ============================================================================
+
+from collections import deque
+from datetime import datetime
+import threading
+
+class SmartRetryQueue:
+    """Intelligently retry failed videos after IP rotation."""
+    
+    def __init__(self, max_retries: int = 2):
+        self.queue = deque()
+        self.max_retries = max_retries
+        self.skip_log = []
+        self.lock = threading.Lock()
+    
+    def should_retry(self, video_id: str, error_type: str) -> bool:
+        """Decide if failure should be queued for retry."""
+        # Bot blocks are permanent - don't retry
+        if 'bot' in error_type.lower() or 'sign in' in error_type.lower():
+            with self.lock:
+                self.skip_log.append({'video_id': video_id, 'reason': 'bot_blocked'})
+            return False
+        
+        # Network/transient errors - queue for retry
+        with self.lock:
+            existing = next(
+                (item for item in self.queue if item['video_id'] == video_id),
+                None
+            )
+            
+            if existing is None:
+                self.queue.append({
+                    'video_id': video_id,
+                    'error_type': error_type,
+                    'attempts': 1,
+                    'queued_at': datetime.now()
+                })
+                return True
+            elif existing['attempts'] < self.max_retries:
+                existing['attempts'] += 1
+                return True
+            else:
+                # Max retries reached - permanent skip
+                self.queue.remove(existing)
+                self.skip_log.append({'video_id': video_id, 'reason': 'max_retries'})
+                return False
+    
+    def get_next_retry(self) -> Optional[str]:
+        """Get next video to retry (if queue not empty)."""
+        with self.lock:
+            if not self.queue:
+                return None
+            
+            # Get oldest item
+            oldest = self.queue[0]
+            # Only retry if queued for at least 10 seconds (let IP settle)
+            time_since_queued = (datetime.now() - oldest['queued_at']).total_seconds()
+            if time_since_queued > 10:
+                return oldest['video_id']
+            return None
+    
+    def mark_success(self, video_id: str):
+        """Remove from queue on successful retry."""
+        with self.lock:
+            self.queue = deque(
+                item for item in self.queue if item['video_id'] != video_id
+            )
+    
+    def get_stats(self) -> dict:
+        """Get retry queue statistics."""
+        with self.lock:
+            return {
+                'in_queue': len(self.queue),
+                'skipped': len(self.skip_log),
+                'bot_blocked': len([s for s in self.skip_log if s['reason'] == 'bot_blocked']),
+                'max_retries': len([s for s in self.skip_log if s['reason'] == 'max_retries'])
+            }
+
+def renew_tor_identity(control_port: int = 9151, password: Optional[str] = None, proxies: Optional[dict] = None) -> bool:
     """
     Request a new identity from Tor to rotate IP.
-    Default port 9151 is for Tor Browser. Standalone Tor uses 9051.
     """
     try:
+        # Check old IP
+        old_ip = get_current_ip(proxies)
+        
         with Controller.from_port(port=control_port) as controller:
             if password:
                 controller.authenticate(password=password)
             else:
-                controller.authenticate()  # Try cookie/empty auth
+                controller.authenticate()
             
             controller.signal(Signal.NEWNYM)
-            logger.info("🔄 Tor Identity Rotated (New IP requested)")
-            time.sleep(5)  # Wait for new circuit
+            
+        logger.info("🔄 Signal sent to Tor Controller. Waiting for circuit...")
+        time.sleep(10)  # Wait longer for circuit to build
+        
+        # Verify new IP
+        new_ip = get_current_ip(proxies)
+        
+        if new_ip and old_ip and new_ip != old_ip:
+            logger.info(f"✅ Tor Identity Rotated: {old_ip} -> {new_ip}")
             return True
+        elif new_ip:
+             logger.warning(f"⚠️ IP Verification inconclusive (IP might be same): {new_ip}")
+             return True # Assume success if we got an IP back, might just be same exit node
+        else:
+            logger.warning("⚠️ Could not verify new IP (check connection).")
+            return True # Proceed anyway
             
     except Exception as e:
         logger.warning(f"Failed to rotate Tor identity: {e}")
-        logger.info("Tip: Ensure 'ControlPort 9151' is enabled in torrc if using standalone Tor.")
         return False
 def clean_vtt_text(vtt_content: str) -> str:
     """Clean VTT subtitle content to extract text."""
@@ -83,19 +187,12 @@ def clean_vtt_text(vtt_content: str) -> str:
         
     return ' '.join(text_lines)
 
-def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> Optional[dict]:
+def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> tuple[Optional[dict], Optional[str]]:
     """
     Get the best available transcript using yt-dlp (more robust against blocking).
     
-    Priority:
-    1. Arabic transcript (manual)
-    2. French transcript (manual)
-    3. English transcript (manual)
-    4. Auto-generated (any of above)
-    
-    Args:
-        video_id: YouTube video ID
-        proxies: Optional dict of proxies (e.g. {'http': 'socks5://...', 'https': '...'})
+    Returns:
+        tuple: (transcript_dict, error_message)
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
     
@@ -188,13 +285,15 @@ def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> Option
                         'is_translatable': True, 
                         'segment_count': len(text.split('.')), # Rough estimate
                         'transcript_available': True,
-                    }
+                        'failure_reason': None
+                    }, None
                     
-        return None
+        return None, "No transcript found"
 
     except Exception as e:
-        logger.warning(f"Error fetching transcript for {video_id}: {e}")
-        return None
+        error_msg = str(e)
+        logger.warning(f"Error fetching transcript for {video_id}: {error_msg}")
+        return None, error_msg
 
 
 class TranscriptCollector:
@@ -216,7 +315,11 @@ class TranscriptCollector:
             'failed': 0,
             'manual': 0,
             'generated': 0,
+            'retried': 0,  # Track retry successes
         }
+        
+        # Initialize Smart Retry Queue (keep this - it's useful!)
+        self.retry_queue = SmartRetryQueue(max_retries=2)
     
     def collect_transcripts(
         self,
@@ -245,11 +348,42 @@ class TranscriptCollector:
         processed_ids = set()
         if checkpoint_path and checkpoint_path.exists():
             try:
-                existing_df = pd.read_csv(checkpoint_path)
+                existing_df = pd.read_csv(checkpoint_path)  # <<< FIX: Load the checkpoint file
                 if video_id_column in existing_df.columns:
-                    processed_ids = set(existing_df[video_id_column].unique())
-                    results = existing_df.to_dict('records')
-                    logger.info(f"Resuming from checkpoint: {len(results)} videos already processed.")
+                    # SMART RESUMABILITY:
+                    # 1. Successful transcripts -> Processed (Keep)
+                    # 2. Hard Failures (Bot Blocked) -> Processed (Keep, don't retry infinite loop)
+                    # 3. Soft Failures (Network/Other) -> Retry (Drop from processed)
+                    
+                    if 'transcript_available' in existing_df.columns:
+                        # Identify records to keep
+                        # Keep if Success OR (Failed AND Reason is Bot/Sign-in)
+                        
+                        # Normalize failure reason
+                        if 'failure_reason' not in existing_df.columns:
+                            existing_df['failure_reason'] = None
+                            
+                        # Condition: Success
+                        cond_success = existing_df['transcript_available'] == True
+                        
+                        # Condition: Bot Blocked (Soft-skip)
+                        # We use a marker 'bot_blocked' or check string
+                        cond_bot = existing_df['failure_reason'].astype(str).str.contains('bot|Sign in', case=False, na=False)
+                        
+                        # Records to keep as "Done"
+                        keep_mask = cond_success | cond_bot
+                        done_df = existing_df[keep_mask]
+                        
+                        processed_ids = set(done_df[video_id_column].unique())
+                        results = done_df.to_dict('records')
+                        
+                        retried_count = len(existing_df) - len(done_df)
+                        logger.info(f"Resuming: {len(done_df)} processed (success/skipped), retrying {retried_count} failed records.")
+                    else:
+                        # Fallback
+                        processed_ids = set(existing_df[video_id_column].unique())
+                        results = existing_df.to_dict('records')
+                        logger.info(f"Resuming from checkpoint: {len(results)} videos collected.")
             except Exception as e:
                 logger.warning(f"Could not load checkpoint: {e}")
         
@@ -259,96 +393,184 @@ class TranscriptCollector:
              try:
                 final_df = pd.read_csv(final_output_path)
                 if video_id_column in final_df.columns:
+                    # Logic: Only add if successful (Final output usually only has successes, but just in case)
+                    if 'transcript_available' in final_df.columns:
+                         final_df = final_df[final_df['transcript_available'] == True]
+                    
                     final_ids = set(final_df[video_id_column].unique())
                     new_ids = final_ids - processed_ids
                     if new_ids:
                         processed_ids.update(new_ids)
                         results.extend(final_df[final_df[video_id_column].isin(new_ids)].to_dict('records'))
-                        logger.info(f"Loaded {len(new_ids)} additional records from existing output file.")
+                        logger.info(f"Loaded {len(new_ids)} additional successful records from existing output file.")
              except Exception: pass
 
         
-        logger.info(f"Starting transcript collection for {total} videos ({len(processed_ids)} already done)")
+        # Index-Based Resumability (Strict Resume)
+        start_index = 0
+        if processed_ids:
+            # Find the rows in videos_df that are in processed_ids
+            # We want to restart AFTER the LAST processed video ID found in the input list
+            # to strictly "start where left off" and ignore previous gaps.
+            mask = videos_df[video_id_column].isin(processed_ids)
+            if mask.any():
+                last_match_idx = mask[mask].index[-1]
+                # Assuming default RangeIndex. If not, we might need verify.
+                # videos_df.index usually is RangeIndex(0, N) unless set otherwise.
+                # Let's rely on row iteration order matching the input CSV order.
+                
+                # We simply want to skip 'N' videos where N is the index of the last processed one.
+                # If indices are not 0..N, this logic needs care. 
+                # Let's assume standard pd.read_csv logic where index is row number.
+                start_index = last_match_idx + 1
+                logger.info(f"⏭️ Strict Resumability: Skipping to index {start_index} (ignoring gaps before it).")
+
+        logger.info(f"Starting transcript collection for {total} videos (starting at index {start_index})")
         
         for idx, row in videos_df.iterrows():
+            # Strict skip
+            # Note: iterrows yields independent index. If df was filtered/sorted, this might mismatch position.
+            # But here we assume input_path -> read_csv -> pure RangeIndex.
+            if idx < start_index:
+                 # Count stats for progress tracking? 
+                 # Or just ignore from stats? 
+                 # Let's count them as 'skipped' implicitly or process total based on active range
+                 continue
+            
             video_id = row[video_id_column]
+            logger.info(f"Processing video {idx}/{total}: {video_id}")
             
-            # Skip if already processed
-            if video_id in processed_ids:
-                self.stats['success'] += 1 # Count as success for stats continuity? 
-                # Or just skip stats? Let's just skip processing but count for progress
-                continue
-
-            # Get transcript
+            # TIER 3: Check if there's a retry in queue (process after IP rotation)
+            retry_vid = self.retry_queue.get_next_retry()
+            if retry_vid:
+                video_id = retry_vid
+                self.stats['retried'] += 1
+                logger.info(f"♻️ Retrying queued video: {video_id}")
             
             # Get transcript
-            transcript = get_best_transcript(video_id, proxies=self.proxies)
+            transcript, error_msg = get_best_transcript(video_id, proxies=self.proxies)
             
             if transcript:
+                # Success
                 results.append(transcript)
                 self.stats['success'] += 1
                 self.stats['consecutive_failures'] = 0  # Reset on success
+                
+                # Mark success in retry queue (if it was a retry)
+                self.retry_queue.mark_success(video_id)
+                
                 if transcript['is_generated']:
                     self.stats['generated'] += 1
                 else:
                     self.stats['manual'] += 1
             else:
-                results.append({
-                    'video_id': video_id,
-                    'transcript_text': None,
-                    'transcript_language': None,
-                    'transcript_language_code': None,
-                    'is_generated': None,
-                    'is_translatable': None,
-                    'segment_count': 0,
-                    'transcript_available': False,
-                })
+                # Handle Failure - TIER 3: Smart Retry Logic
+                is_bot_block = error_msg and ('Sign in' in error_msg or 'bot' in error_msg.lower())
+                
+                failure_reason = 'bot_blocked' if is_bot_block else 'error'
+                if error_msg:
+                    failure_reason += f": {error_msg[:50]}"
+                
+                # Decide: Queue for retry or skip permanently
+                should_queue = self.retry_queue.should_retry(video_id, failure_reason)
+                
+                if should_queue:
+                    logger.debug(f"📋 Queued for retry: {video_id}")
+                else:
+                    # Permanent failure - add to results as failed
+                    results.append({
+                        'video_id': video_id,
+                        'transcript_text': None,
+                        'transcript_language': None,
+                        'transcript_language_code': None,
+                        'is_generated': None,
+                        'is_translatable': None,
+                        'segment_count': 0,
+                        'transcript_available': False,
+                        'failure_reason': failure_reason
+                    })
+                
                 self.stats['failed'] += 1
-                self.stats.setdefault('consecutive_failures', 0)
-                self.stats['consecutive_failures'] += 1
-            
+                
+                if is_bot_block:
+                    logger.warning(f"🤖 Bot detected for {video_id}. Marking as skipped and forcing rotation.")
+                    self.stats['consecutive_failures'] = 5 
+                else:
+                    self.stats.setdefault('consecutive_failures', 0)
+                    self.stats['consecutive_failures'] += 1
+                    
             # Circuit breaker & Rotation Logic
             failures = self.stats.get('consecutive_failures', 0)
             
             # Try to rotate IP every 5 failures if using Tor
             if failures > 0 and failures % 5 == 0:
                 logger.warning(f"⚠️ {failures} consecutive failures. Attempting to rotate Tor identity...")
-                # Try Port 9151 (Browser) first, then 9051 (System)
-                if not renew_tor_identity(9151):
-                    renew_tor_identity(9051)
+                
+                # Check if using Tor proxy
+                is_tor = self.proxies and any('9150' in p or '9151' in p or '9050' in p for p in self.proxies.values())
+                
+                if is_tor:
+                    # Try Port 9151 (Browser) first, then 9051 (System)
+                    rotated = renew_tor_identity(9151, proxies=self.proxies)
+                    if not rotated:
+                        rotated = renew_tor_identity(9051, proxies=self.proxies)
+                    
+                    if rotated:
+                        logger.info("✅ IP Rotated successfully. Resetting failure counter.")
+                        self.stats['consecutive_failures'] = 0
+                else:
+                    logger.warning("⚠️ Not using Tor proxy, cannot rotate IP automatically.")
+                    time.sleep(30) # Wait longer if we can't rotate
             
             # Hard Abort after 50 failures (despite rotations)
+            # Re-check failures after potential reset above
+            failures = self.stats.get('consecutive_failures', 0)
             if failures >= 50:
-                logger.error("🛑 Aborting: 50 consecutive failures detected. Likely IP blocked by YouTube.")
-                logger.error("Try using a VPN or waiting for a few hours.")
-                break
+                logger.error("🛑 Aborting: 50 consecutive failures detected on same IP (or rotation failed).")
+                logger.error("Likely IP blocked by YouTube or Proxy issues.")
+                raise RuntimeError("Too many consecutive failures")
             
             # Progress logging
             processed = idx + 1
             if processed % 5 == 0 or processed == total:
-                coverage = (self.stats['success'] / processed) * 100
+                # Avoid div by zero in coverage calc if skipping
+                current_session_processed = processed - start_index
+                coverage = 0.0
+                if current_session_processed > 0:
+                   # This is tricky because stats include only this session
+                   pass
+                
                 logger.info(
                     f"Progress: {processed}/{total} "
-                    f"({self.stats['success']} success, {self.stats['failed']} failed, "
-                    f"{coverage:.1f}% coverage)"
+                    f"({self.stats['success']} success, {self.stats['failed']} failed)"
                 )
             
             # Checkpoint
             if checkpoint_path and processed % checkpoint_interval == 0:
-                checkpoint_df = pd.DataFrame(results)
-                checkpoint_df.to_csv(checkpoint_path, index=False)
-                logger.info(f"Checkpoint saved: {checkpoint_path}")
+                try:
+                    checkpoint_df = pd.DataFrame(results)
+                    checkpoint_df.to_csv(checkpoint_path, index=False)
+                    logger.info(f"Checkpoint saved: {checkpoint_path}")
+                except OSError as e:
+                     logger.warning(f"⚠️ Failed to save checkpoint (File Locked?): {e}")
             
             # Rate limiting (increased to reduce ban risk)
             time.sleep(1.0)
         
         # Final stats
+        retry_stats = self.retry_queue.get_stats()
+        
         logger.info(f"\nTranscript Collection Complete:")
         logger.info(f"  Total videos: {self.stats['total']}")
         logger.info(f"  With transcript: {self.stats['success']}")
         logger.info(f"    - Manual: {self.stats['manual']}")
         logger.info(f"    - Auto-generated: {self.stats['generated']}")
+        logger.info(f"    - Retry successes: {self.stats['retried']}")
         logger.info(f"  Without transcript: {self.stats['failed']}")
+        logger.info(f"  Retry Queue:")
+        logger.info(f"    - Still queued: {retry_stats['in_queue']}")
+        logger.info(f"    - Bot-blocked (skipped): {retry_stats['bot_blocked']}")
+        logger.info(f"    - Max retries (skipped): {retry_stats['max_retries']}")
         logger.info(f"  Coverage: {(self.stats['success']/max(1, idx+1))*100:.1f}%")
         
         return pd.DataFrame(results)
@@ -396,12 +618,16 @@ def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional
     collector = TranscriptCollector(rate_limit_delay=1.0, proxies=proxies)
     checkpoint_path = output_path.parent / f"{output_path.stem}_checkpoint.csv"
     
-    transcripts_df = collector.collect_transcripts(
-        videos_df,
-        video_id_column='video_id',
-        checkpoint_interval=5,
-        checkpoint_path=checkpoint_path,
-    )
+    try:
+        transcripts_df = collector.collect_transcripts(
+            videos_df,
+            video_id_column='video_id',
+            checkpoint_interval=5,
+            checkpoint_path=checkpoint_path,
+        )
+    except RuntimeError as e:
+        logger.error(f"Pipeline failed: {e}")
+        return 1 # Return error code to trigger restart in keep_alive
     
     # Save results
     output_path.parent.mkdir(parents=True, exist_ok=True)
