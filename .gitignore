@@ -56,3 +56,5 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+.tor_instances/
+data/processed/transcripts_part1_checkpoint.csv
