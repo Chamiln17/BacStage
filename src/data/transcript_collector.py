@@ -125,6 +125,9 @@ def clean_vtt_text(vtt_content: str) -> str:
             continue
         if line == 'WEBVTT' or line.startswith('NOTE') or '-->' in line:
             continue
+        # Safety check for code injection
+        if line.strip().startswith('window.') or 'var ' in line or 'function' in line or '{' in line:
+            continue
         clean = re.sub(r'<[^>]+>', '', line)
         if re.match(r'^\d{2}:\d{2}', clean):
             continue
@@ -153,6 +156,9 @@ def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> Option
         
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Add increased timeout
+            ydl_opts['socket_timeout'] = 30
+            
             info = ydl.extract_info(url, download=False)
             
             subs = info.get('subtitles', {})
@@ -211,8 +217,24 @@ def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> Option
                     resp = http_client.get(sub_url, timeout=10)
                     resp.raise_for_status()
                     
+                    # VALIDATION: Check Content-Type and Content
+                    content_type = resp.headers.get('Content-Type', '').lower()
+                    if 'html' in content_type:
+                        logger.warning(f"Rejecting HTML content for {video_id} (Type: {content_type})")
+                        raise ValueError("Youtube returned HTML instead of transcript (likely blocked)")
+                        
+                    content_snippet = resp.text[:1000].strip()
+                    if content_snippet.startswith('<!DOCTYPE') or '<html' in content_snippet.lower() or 'window.WIZ_global_data' in content_snippet:
+                        logger.warning(f"Rejecting HTML/JS content for {video_id}")
+                        raise ValueError("Youtube returned HTML/JS instead of transcript")
+
                     text = clean_vtt_text(resp.text)
                     
+                    # Secondary validation of result text
+                    if len(text) > 50 and ('window.' in text or 'ytcfg' in text):
+                         logger.warning(f"Cleaned text still looks like code for {video_id}")
+                         raise ValueError("Transcript validation failed (JS code detected)")
+
                     return {
                         'video_id': video_id,
                         'transcript_text': text,
@@ -373,8 +395,13 @@ class TranscriptCollector:
                 })
                 self.stats['failed'] += 1
                 if not is_retry:
-                    self.stats.setdefault('consecutive_failures', 0)
-                    self.stats['consecutive_failures'] += 1
+                    # Only count consecutive failures for actual errors (not empty transcripts)
+                    if error_reason and 'no transcript' not in str(error_reason).lower():
+                        self.stats.setdefault('consecutive_failures', 0)
+                        self.stats['consecutive_failures'] += 1
+                    else:
+                         # Reset consecutive failures if it's just a data issue (we are successfully talking to YT)
+                         self.stats['consecutive_failures'] = 0
 
 def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional[str] = None, workers: int = 1) -> int:
     """CLI entry point."""
