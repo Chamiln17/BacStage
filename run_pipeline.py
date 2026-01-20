@@ -124,7 +124,7 @@ def cmd_engineer(args: argparse.Namespace) -> int:
 def cmd_transcripts(args: argparse.Namespace) -> int:
     """Collect YouTube transcripts."""
     from src.data.transcript_collector import collect_transcripts_cli
-    return collect_transcripts_cli(args.input, args.output, args.proxy)
+    return collect_transcripts_cli(args.input, args.output, args.proxy, getattr(args, 'workers', 1))
 
 
 def cmd_transcript_features(args: argparse.Namespace) -> int:

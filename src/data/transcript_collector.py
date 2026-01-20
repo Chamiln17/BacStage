@@ -7,21 +7,10 @@ Supports manual captions, auto-generated, and multiple languages (Arabic, French
 
 import logging
 import time
-import logging
-from pathlib import Path
-from typing import Optional
-
-import pandas as pd
-import requests
-
-logger = logging.getLogger(__name__)
-
-
 import re
-import time
-import logging
 from pathlib import Path
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
@@ -299,16 +288,18 @@ def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> tuple[
 class TranscriptCollector:
     """Collects transcripts for multiple videos with progress tracking and rate limiting."""
     
-    def __init__(self, rate_limit_delay: float = 0.2, proxies: Optional[dict] = None):
+    def __init__(self, rate_limit_delay: float = 0.2, proxies: Optional[dict] = None, num_workers: int = 1):
         """
-        Initialize the collector.
+        Initialize the transcript collector.
         
         Args:
             rate_limit_delay: Seconds to wait between API calls
             proxies: Optional proxy configuration for requests
+            num_workers: Number of parallel workers (default: 1 for sequential)
         """
         self.rate_limit_delay = rate_limit_delay
         self.proxies = proxies
+        self.num_workers = num_workers
         self.stats = {
             'total': 0,
             'success': 0,
@@ -318,8 +309,72 @@ class TranscriptCollector:
             'retried': 0,  # Track retry successes
         }
         
+        # Thread safety
+        self.lock = threading.Lock()
+        
         # Initialize Smart Retry Queue (keep this - it's useful!)
         self.retry_queue = SmartRetryQueue(max_retries=2)
+    
+    def _process_single_video(self, video_id: str) -> dict:
+        """
+        Process a single video (thread-safe for parallel execution).
+        
+        Args:
+            video_id: YouTube video ID to process
+            
+        Returns:
+            dict: Transcript result or failure record
+        """
+        # Get transcript
+        transcript, error_msg = get_best_transcript(video_id, proxies=self.proxies)
+        
+        if transcript:
+            # Success - thread-safe stats update
+            with self.lock:
+                self.stats['success'] += 1
+                self.stats['consecutive_failures'] = 0
+                if transcript['is_generated']:
+                    self.stats['generated'] += 1
+                else:
+                    self.stats['manual'] += 1
+            
+            # Mark success in retry queue
+            self.retry_queue.mark_success(video_id)
+            return transcript
+            
+        else:
+            # Failure - thread-safe stats update
+            is_bot_block = error_msg and ('Sign in' in error_msg or 'bot' in error_msg.lower())
+            
+            failure_reason = 'bot_blocked' if is_bot_block else 'error'
+            if error_msg:
+                failure_reason += f": {error_msg[:50]}"
+            
+            # Decide: Queue for retry or skip permanently
+            should_queue = self.retry_queue.should_retry(video_id, failure_reason)
+            
+            with self.lock:
+                self.stats['failed'] += 1
+                if is_bot_block:
+                    logger.warning(f"🤖 Bot detected for {video_id}.")
+                    self.stats['consecutive_failures'] = 5  # Force rotation
+            
+            if should_queue:
+                logger.debug(f"📋 Queued for retry: {video_id}")
+                return None  # Don't add to results yet
+            else:
+                # Permanent failure
+                return {
+                    'video_id': video_id,
+                    'transcript_text': None,
+                    'transcript_language': None,
+                    'transcript_language_code': None,
+                    'is_generated': None,
+                    'is_translatable': None,
+                    'segment_count': 0,
+                    'transcript_available': False,
+                    'failure_reason': failure_reason
+                }
     
     def collect_transcripts(
         self,
@@ -426,81 +481,68 @@ class TranscriptCollector:
                 logger.info(f"⏭️ Strict Resumability: Skipping to index {start_index} (ignoring gaps before it).")
 
         logger.info(f"Starting transcript collection for {total} videos (starting at index {start_index})")
+        logger.info(f"Using {self.num_workers} worker(s) for parallel processing")
         
-        for idx, row in videos_df.iterrows():
-            # Strict skip
-            # Note: iterrows yields independent index. If df was filtered/sorted, this might mismatch position.
-            # But here we assume input_path -> read_csv -> pure RangeIndex.
-            if idx < start_index:
-                 # Count stats for progress tracking? 
-                 # Or just ignore from stats? 
-                 # Let's count them as 'skipped' implicitly or process total based on active range
-                 continue
+        # Get list of videos to process
+        videos_to_process = [(idx, row[video_id_column]) for idx, row in videos_df.iterrows() if idx >= start_index]
+        
+        # Process in batches using ThreadPoolExecutor
+        batch_size = 50  # Process 50 videos at a time
+        for batch_start in range(0, len(videos_to_process), batch_size):
+            batch = videos_to_process[batch_start:batch_start + batch_size]
             
-            video_id = row[video_id_column]
-            logger.info(f"Processing video {idx}/{total}: {video_id}")
+            # Collect retries from queue (once per batch, not per worker!)
+            retries_to_process = []
+            while True:
+                retry_vid = self.retry_queue.get_next_retry()
+                if not retry_vid:
+                    break
+                retries_to_process.append(retry_vid)
+                with self.lock:
+                    self.stats['retried'] += 1
+                logger.info(f"♻️ Retrying queued video: {retry_vid}")
+                if len(retries_to_process) >= 10:  # Max 10 retries per batch
+                    break
             
-            # TIER 3: Check if there's a retry in queue (process after IP rotation)
-            retry_vid = self.retry_queue.get_next_retry()
-            if retry_vid:
-                video_id = retry_vid
-                self.stats['retried'] += 1
-                logger.info(f"♻️ Retrying queued video: {video_id}")
+            # Combine new videos + retries
+            all_videos_in_batch = [(idx, vid) for idx, vid in batch] + [(None, vid) for vid in retries_to_process]
             
-            # Get transcript
-            transcript, error_msg = get_best_transcript(video_id, proxies=self.proxies)
+            logger.info(f"\n📦 Processing batch: {len(batch)} new + {len(retries_to_process)} retries")
             
-            if transcript:
-                # Success
-                results.append(transcript)
-                self.stats['success'] += 1
-                self.stats['consecutive_failures'] = 0  # Reset on success
-                
-                # Mark success in retry queue (if it was a retry)
-                self.retry_queue.mark_success(video_id)
-                
-                if transcript['is_generated']:
-                    self.stats['generated'] += 1
-                else:
-                    self.stats['manual'] += 1
-            else:
-                # Handle Failure - TIER 3: Smart Retry Logic
-                is_bot_block = error_msg and ('Sign in' in error_msg or 'bot' in error_msg.lower())
-                
-                failure_reason = 'bot_blocked' if is_bot_block else 'error'
-                if error_msg:
-                    failure_reason += f": {error_msg[:50]}"
-                
-                # Decide: Queue for retry or skip permanently
-                should_queue = self.retry_queue.should_retry(video_id, failure_reason)
-                
-                if should_queue:
-                    logger.debug(f"📋 Queued for retry: {video_id}")
-                else:
-                    # Permanent failure - add to results as failed
-                    results.append({
-                        'video_id': video_id,
-                        'transcript_text': None,
-                        'transcript_language': None,
-                        'transcript_language_code': None,
-                        'is_generated': None,
-                        'is_translatable': None,
-                        'segment_count': 0,
-                        'transcript_available': False,
-                        'failure_reason': failure_reason
-                    })
-                
-                self.stats['failed'] += 1
-                
-                if is_bot_block:
-                    logger.warning(f"🤖 Bot detected for {video_id}. Marking as skipped and forcing rotation.")
-                    self.stats['consecutive_failures'] = 5 
-                else:
-                    self.stats.setdefault('consecutive_failures', 0)
-                    self.stats['consecutive_failures'] += 1
+            # Use ThreadPoolExecutor for parallel processing
+            if self.num_workers > 1:
+                with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                    # Submit all tasks
+                    future_to_video = {
+                        executor.submit(self._process_single_video, video_id): (idx, video_id)
+                        for idx, video_id in all_videos_in_batch
+                    }
                     
-            # Circuit breaker & Rotation Logic
-            failures = self.stats.get('consecutive_failures', 0)
+                    # Collect results as they complete
+                    for future in as_completed(future_to_video):
+                        idx, video_id = future_to_video[future]
+                        try:
+                            result = future.result(timeout=60)  # 60s timeout per video
+                            if result:  # Skip None (queued for retry)
+                                with self.lock:
+                                    results.append(result)
+                        except Exception as e:
+                            logger.error(f"Exception processing {video_id}: {e}")
+                            with self.lock:
+                                self.stats['failed'] += 1
+            else:
+                # Sequential processing (num_workers=1)
+                for idx, video_id in all_videos_in_batch:
+                    result = self._process_single_video(video_id)
+                    if result:
+                        results.append(result)
+            
+            # IP Rotation Logic (after batch)
+            # This logic needs to be thread-safe if stats are updated by multiple threads.
+            # The _process_single_video already updates stats with a lock.
+            # Here we just read the 'consecutive_failures' stat.
+            with self.lock:
+                failures = self.stats.get('consecutive_failures', 0)
             
             # Try to rotate IP every 5 failures if using Tor
             if failures > 0 and failures % 5 == 0:
@@ -517,31 +559,29 @@ class TranscriptCollector:
                     
                     if rotated:
                         logger.info("✅ IP Rotated successfully. Resetting failure counter.")
-                        self.stats['consecutive_failures'] = 0
+                        with self.lock:
+                            self.stats['consecutive_failures'] = 0
                 else:
                     logger.warning("⚠️ Not using Tor proxy, cannot rotate IP automatically.")
                     time.sleep(30) # Wait longer if we can't rotate
             
             # Hard Abort after 50 failures (despite rotations)
             # Re-check failures after potential reset above
-            failures = self.stats.get('consecutive_failures', 0)
+            with self.lock:
+                failures = self.stats.get('consecutive_failures', 0)
             if failures >= 50:
                 logger.error("🛑 Aborting: 50 consecutive failures detected on same IP (or rotation failed).")
                 logger.error("Likely IP blocked by YouTube or Proxy issues.")
                 raise RuntimeError("Too many consecutive failures")
             
             # Progress logging
-            processed = idx + 1
-            if processed % 5 == 0 or processed == total:
+            processed = batch_start + len(batch)
+            if processed % checkpoint_interval == 0 or processed == len(videos_to_process):
                 # Avoid div by zero in coverage calc if skipping
-                current_session_processed = processed - start_index
-                coverage = 0.0
-                if current_session_processed > 0:
-                   # This is tricky because stats include only this session
-                   pass
+                current_session_processed = processed
                 
                 logger.info(
-                    f"Progress: {processed}/{total} "
+                    f"Progress: {processed + start_index}/{total} "
                     f"({self.stats['success']} success, {self.stats['failed']} failed)"
                 )
             
@@ -576,7 +616,7 @@ class TranscriptCollector:
         return pd.DataFrame(results)
 
 
-def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional[str] = None) -> int:
+def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional[str] = None, num_workers: int = 1) -> int:
     """
     CLI entry point for transcript collection.
     
@@ -615,7 +655,7 @@ def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional
         logger.info(f"Using proxy: {proxy}")
     
     # Collect transcripts
-    collector = TranscriptCollector(rate_limit_delay=1.0, proxies=proxies)
+    collector = TranscriptCollector(rate_limit_delay=1.0, proxies=proxies, num_workers=num_workers)
     checkpoint_path = output_path.parent / f"{output_path.stem}_checkpoint.csv"
     
     try:
@@ -639,11 +679,13 @@ def collect_transcripts_cli(input_path: Path, output_path: Path, proxy: Optional
 
 if __name__ == "__main__":
     import argparse
+    import sys
     
     parser = argparse.ArgumentParser(description="Collect YouTube transcripts")
     parser.add_argument("--input", type=Path, required=True, help="Input CSV with video IDs")
     parser.add_argument("--output", type=Path, required=True, help="Output CSV path")
     parser.add_argument("--proxy", type=str, help="Optional proxy URL")
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers (default: 1, max: 5)")
     
     args = parser.parse_args()
-    exit(collect_transcripts_cli(args.input, args.output, args.proxy))
+    sys.exit(collect_transcripts_cli(args.input, args.output, args.proxy, args.workers))
