@@ -43,8 +43,14 @@ class SmartRetryQueue:
         # But if it's "Sign in to view", that might be account specific? No, usually IP.
         
         # Permanent failures - Do not retry
-        if 'no transcript' in error_type.lower():
+        er_lower = error_type.lower()
+        if 'no transcript' in er_lower:
             return False
+            
+        # If it's the HTML/JS error we added, assume it's a hard block for this IP/video combo and don't retry 
+        # (or at least don't retry in immediate loop - rotation might handle it but user asked to fail directly)
+        if 'html' in er_lower or 'js code' in er_lower:
+             return False
 
         # Ensure we don't queue if it's already in queue (shouldn't happen with sequential logic but safe to check)
         existing = next((item for item in self.queue if item['video_id'] == video_id), None)
@@ -284,35 +290,46 @@ class TranscriptCollector:
             try:
                 existing_df = pd.read_csv(checkpoint_path)
                 if video_id_column in existing_df.columns:
+                    # Enforce string type for IDs to ensure consistent matching
+                    existing_df[video_id_column] = existing_df[video_id_column].astype(str)
+                    
+                    # Deduplicate: keep last occurrence (or first? usually first is better if we just want to keep valid data, but last might be more recent. Let's assume generic deduplication)
+                    # Actually, we want to drop duplicates based on video_id.
+                    existing_df = existing_df.drop_duplicates(subset=[video_id_column])
+                    
                     processed_ids = set(existing_df[video_id_column].unique())
                     results = existing_df.to_dict('records')
-                    logger.info(f"Resuming from checkpoint: {len(results)} videos already processed.")
+                    logger.info(f"Resuming from checkpoint: {len(results)} videos already processed (deduplicated).")
             except Exception as e:
                 logger.warning(f"Could not load checkpoint: {e}")
         
         logger.info(f"Starting transcript collection for {total} videos ({len(processed_ids)} already done)")
         
         # WORK LOOP
-        # Convert df to list to allow appending retries? 
-        # Actually, iterate DF, and handle retries in-between.
-        
         iterator = videos_df.iterrows()
         
         for idx, row in iterator:
-            video_id = row[video_id_column]
+            video_id = str(row[video_id_column]) # Ensure string comparison
             
             # Skip if processed
             if video_id in processed_ids:
-                # self.stats['success'] += 1 
                 continue
 
             # 1. Process Retries First (if any ready)
             retry_conf = self.retry_queue.get_next_retry()
             if retry_conf:
                  self._process_one(retry_conf, results, is_retry=True)
+                 # Note: retries don't need to check processed_ids because they are explicitly managed
             
             # 2. Process Current
             self._process_one(video_id, results, is_retry=False)
+            
+            # Add to processed set immediately to prevent re-processing in this run
+            # We do this regardless of success/fail because _process_one appends to results in both cases (unless it's a temp retry failure)
+            # If it was queued for retry, it's NOT in results yet, but we have "processed" this iteration of the main loop.
+            # However, if we mark it as processed, the main loop won't pick it up again. 
+            # If it's in the retry queue, that's fine, the retry system handles it.
+            processed_ids.add(video_id)
             
             # Circuit breaker & Rotation
             failures = self.stats.get('consecutive_failures', 0)
@@ -345,8 +362,9 @@ class TranscriptCollector:
                  if checkpoint_path and results:
                     try:
                         checkpoint_df = pd.DataFrame(results)
+                        # Double check deduplication on save just in case
+                        checkpoint_df = checkpoint_df.drop_duplicates(subset=[video_id_column])
                         checkpoint_df.to_csv(checkpoint_path, index=False)
-                        # logger.info(f"Checkpoint saved")
                     except Exception: pass
             
             time.sleep(1.0)
@@ -354,7 +372,11 @@ class TranscriptCollector:
         return pd.DataFrame(results)
 
     def _process_one(self, video_id, results, is_retry=False):
-        transcript_data = get_best_transcript(video_id, proxies=self.proxies)
+        # Handle both string ID or retry dict
+        vid = video_id if isinstance(video_id, str) else video_id # In retry it might be just ID str from get_next_retry? 
+        # Checking get_next_retry return type: returns video_id string.
+        
+        transcript_data = get_best_transcript(vid, proxies=self.proxies)
         
         if transcript_data and 'transcript_text' in transcript_data:
             # Success
@@ -368,22 +390,22 @@ class TranscriptCollector:
             
             if is_retry:
                 self.stats['retried'] += 1
-                self.retry_queue.mark_success(video_id)
-                logger.info(f"✅ Retry success: {video_id}")
+                self.retry_queue.mark_success(vid)
+                logger.info(f"✅ Retry success: {vid}")
         else:
             # Failed
             error_reason = transcript_data.get('error', 'Unknown') if transcript_data else 'No transcript'
             
             # Add to retry queue?
-            should_retry = self.retry_queue.should_retry(video_id, error_reason)
+            should_retry = self.retry_queue.should_retry(vid, error_reason)
             
             if should_retry:
-                logger.info(f"♻️ Queued for retry: {video_id} (Reason: {error_reason})")
+                logger.info(f"♻️ Queued for retry: {vid} (Reason: {error_reason})")
                 # Do NOT add to results yet
             else:
                 # Permanent failure
                 results.append({
-                    'video_id': video_id,
+                    'video_id': vid,
                     'transcript_text': None,
                     'transcript_language': None,
                     'transcript_language_code': None,
