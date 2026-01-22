@@ -26,7 +26,7 @@ class VideoFeatureEngineer:
     - Channel-level features
     """
 
-    def __init__(self, collection_date: Optional[datetime] = None, channels_path: Optional[str] = None) -> None:
+    def __init__(self, collection_date: Optional[datetime] = None, channels_path: Optional[str] = None, transcripts_path: Optional[str] = None) -> None:
         """
         Initialize feature engineer.
 
@@ -35,6 +35,8 @@ class VideoFeatureEngineer:
                            Defaults to current datetime if not provided.
             channels_path: Path to channels.csv with subject labels.
                           Defaults to data/raw/channels.csv if not provided.
+            transcripts_path: Path to merged transcripts CSV with transcript features.
+                            Defaults to data/processed/transcripts_merged.csv if not provided.
         """
         if collection_date is None:
             # Make timezone-aware to match API data
@@ -60,6 +62,21 @@ class VideoFeatureEngineer:
         except FileNotFoundError:
             logger.warning(f"channels.csv not found at {channels_path}, subject column will be missing")
             self.channels_df = None
+        
+        # Load transcripts
+        if transcripts_path is None:
+            from pathlib import Path
+            transcripts_path = Path("data/processed/transcripts_merged.csv")
+        
+        self.transcripts_df = None
+        try:
+            if Path(transcripts_path).exists():
+                self.transcripts_df = pd.read_csv(transcripts_path)
+                logger.info(f"Loaded {len(self.transcripts_df)} transcripts")
+            else:
+                logger.warning(f"Transcripts file not found at {transcripts_path}, transcript features will be skipped")
+        except Exception as e:
+            logger.warning(f"Error loading transcripts: {e}, transcript features will be skipped")
         
         logger.info(
             f"Feature engineer initialized with collection date: {self.collection_date}"
@@ -110,6 +127,7 @@ class VideoFeatureEngineer:
         df = self._create_text_features(df)
         df = self._create_engagement_features(df)
         df = self._create_channel_features(df)
+        df = self._create_transcript_features(df)
 
         logger.info(f"Feature engineering complete: {df.shape[1]} features")
 
@@ -429,6 +447,100 @@ class VideoFeatureEngineer:
         logger.debug(f"Channel features: {df['channel_id'].nunique()} unique channels")
 
         return df
+    
+    def _create_transcript_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Extract and merge transcript features from transcripts dataset.
+
+        Features created (if transcript available):
+        - transcript_word_count: Number of words in transcript
+        - transcript_char_count: Number of characters in transcript
+        - transcript_sentence_count: Number of sentences
+        - avg_words_per_sentence: Average words per sentence
+        - lexical_diversity: Unique words / total words
+        - unique_word_count: Number of unique words
+        - flesch_reading_ease: Readability score
+        - flesch_kincaid_grade: Grade level
+        - gunning_fog_index: Readability metric
+        - automated_readability_index: Readability metric
+        - speech_rate_wpm: Words per minute (if duration available)
+        - speech_rate_optimal: 1 if 120-180 WPM, else 0
+        - question_count, question_density: Question markers
+        - example_count, example_density: Example markers
+        - explanation_count, explanation_density: Explanation markers
+        - contrast_count, contrast_density: Contrast markers
+        - technical_term_count, technical_term_density: Technical terms
+        - subject_keyword_count, subject_keyword_density: Subject-specific keywords
+
+        Args:
+            df: DataFrame with video_id column
+
+        Returns:
+            DataFrame with added transcript features (NaN for videos without transcripts)
+        """
+        logger.debug("Creating transcript features")
+        
+        if self.transcripts_df is None:
+            logger.info("No transcripts available, skipping transcript features")
+            return df
+        
+        # Extract features from transcripts
+        try:
+            from src.features.transcript_features import extract_transcript_features
+            from tqdm import tqdm
+            
+            logger.info(f"Extracting features from {len(self.transcripts_df)} transcripts...")
+            transcript_features_list = []
+            
+            # Progress bar for transcript processing
+            for idx, row in tqdm(
+                self.transcripts_df.iterrows(), 
+                total=len(self.transcripts_df),
+                desc="Extracting transcript features",
+                unit="transcript"
+            ):
+                video_id = row.get('video_id')
+                transcript_text = row.get('transcript_text')
+                
+                # Get duration and subject for this video if available
+                duration_sec = None
+                subject = None
+                
+                if video_id and video_id in df['video_id'].values:
+                    video_row = df[df['video_id'] == video_id].iloc[0]
+                    duration_sec = video_row.get('duration_sec')
+                    subject = video_row.get('subject')
+                
+                # Extract features
+                features = extract_transcript_features(transcript_text, duration_sec, subject)
+                features['video_id'] = video_id
+                transcript_features_list.append(features)
+            
+            transcript_features_df = pd.DataFrame(transcript_features_list)
+            
+            # Merge transcript features with main dataframe (left join to keep all videos)
+            logger.info("Merging transcript features with main dataset...")
+            df = df.merge(
+                transcript_features_df,
+                on='video_id',
+                how='left',
+                suffixes=('', '_transcript')
+            )
+            
+            # Log statistics
+            videos_with_transcripts = df['transcript_word_count'].notna().sum()
+            videos_without = len(df) - videos_with_transcripts
+            logger.info(
+                f"Transcript features merged: {videos_with_transcripts:,} videos with transcripts, "
+                f"{videos_without:,} without ({videos_with_transcripts/len(df)*100:.1f}% coverage)"
+            )
+            
+        except ImportError as e:
+            logger.warning(f"Could not import transcript_features module: {e}")
+        except Exception as e:
+            logger.error(f"Error extracting transcript features: {e}")
+        
+        return df
 
     def select_features(
         self, df: pd.DataFrame, include_target: bool = True
@@ -473,6 +585,31 @@ class VideoFeatureEngineer:
             "channel_avg_views",
             "channel_video_avg_duration",
             "channel_age_days",
+            # Transcript Features (if available)
+            "transcript_word_count",
+            "transcript_char_count",
+            "transcript_sentence_count",
+            "avg_words_per_sentence",
+            "lexical_diversity",
+            "unique_word_count",
+            "flesch_reading_ease",
+            "flesch_kincaid_grade",
+            "gunning_fog_index",
+            "automated_readability_index",
+            "speech_rate_wpm",
+            "speech_rate_optimal",
+            "question_count",
+            "question_density",
+            "example_count",
+            "example_density",
+            "explanation_count",
+            "explanation_density",
+            "contrast_count",
+            "contrast_density",
+            "technical_term_count",
+            "technical_term_density",
+            "subject_keyword_count",
+            "subject_keyword_density",
         ]
 
         if include_target:

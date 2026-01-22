@@ -54,6 +54,27 @@ def extract_transcript_features(
     if not transcript_text or pd.isna(transcript_text):
         return _empty_features()
     
+    # VALIDATION: Detect corrupted transcripts (YouTube JS/HTML code)
+    text_lower = str(transcript_text).lower()
+    corruption_markers = [
+        'window.',
+        'ytcfg',
+        'u003d',  # URL-encoded equals sign
+        'u0026',  # URL-encoded ampersand
+        'javascript',
+        'var ',
+        'function(',
+        '<html',
+        'innertubeapi',
+        'commandu0026',
+    ]
+    
+    # Check for corruption indicators
+    corruption_score = sum(1 for marker in corruption_markers if marker in text_lower)
+    if corruption_score >= 2:  # Too many markers or suspiciously long
+        logger.warning(f"Detected corrupted transcript (JS/HTML code), skipping feature extraction")
+        return _empty_features()
+    
     features = {}
     
     # Tokenize
@@ -88,13 +109,26 @@ def extract_transcript_features(
     # ============================================
     try:
         features['flesch_reading_ease'] = flesch_reading_ease(transcript_text)
+    except Exception as e:
+        logger.debug(f"Error calculating flesch_reading_ease: {str(e)[:100]}")
+        features['flesch_reading_ease'] = 50.0
+    
+    try:
         features['flesch_kincaid_grade'] = flesch_kincaid_grade(transcript_text)
-        features['gunning_fog_index'] = gunning_fog(transcript_text)
-        features['automated_readability_index'] = automated_readability_index(transcript_text)
-    except Exception:
-        features['flesch_reading_ease'] = 50.0  # Default neutral
+    except Exception as e:
+        logger.debug(f"Error calculating flesch_kincaid_grade: {str(e)[:100]}")
         features['flesch_kincaid_grade'] = 10.0
+    
+    try:
+        features['gunning_fog_index'] = gunning_fog(transcript_text)
+    except Exception as e:
+        logger.debug(f"Error calculating gunning_fog: {str(e)[:100]}")
         features['gunning_fog_index'] = 10.0
+    
+    try:
+        features['automated_readability_index'] = automated_readability_index(transcript_text)
+    except Exception as e:
+        logger.debug(f"Error calculating ARI: {str(e)[:100]}")
         features['automated_readability_index'] = 10.0
     
     # ============================================
