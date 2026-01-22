@@ -268,7 +268,8 @@ class TranscriptCollector:
         self.proxies = proxies
         self.stats = {
             'total': 0, 'success': 0, 'failed': 0,
-            'manual': 0, 'generated': 0, 'retried': 0
+            'manual': 0, 'generated': 0, 'retried': 0,
+            'new_processed': 0, 'retry_processed': 0
         }
         self.retry_queue = SmartRetryQueue(max_retries=2)
     
@@ -319,10 +320,12 @@ class TranscriptCollector:
             retry_conf = self.retry_queue.get_next_retry()
             if retry_conf:
                  self._process_one(retry_conf, results, is_retry=True)
+                 self.stats['retry_processed'] += 1
                  # Note: retries don't need to check processed_ids because they are explicitly managed
             
             # 2. Process Current
             self._process_one(video_id, results, is_retry=False)
+            self.stats['new_processed'] += 1
             
             # Add to processed set immediately to prevent re-processing in this run
             # We do this regardless of success/fail because _process_one appends to results in both cases (unless it's a temp retry failure)
@@ -354,10 +357,11 @@ class TranscriptCollector:
                  rate = (self.stats['success'] / processed_so_far * 100) if processed_so_far > 0 else 0.0
                  queue_stats = self.retry_queue.get_stats()
                  logger.info(
-                    f"Progress: {idx+1}/{total} "
-                    f"({self.stats['success']} success, {self.stats['failed']} failed, {self.stats['retried']} fixed, {queue_stats['in_queue']} queued) "
-                    f"[{rate:.1f}% success rate]"
-                )
+                    f"Progress: {idx+1}/{total} | "
+                    f"New: {self.stats['new_processed']} | Retries: {self.stats['retry_processed']} | "
+                    f"Results: {self.stats['success']} ✓, {self.stats['failed']} ✗, {self.stats['retried']} fixed | "
+                    f"Queue: {queue_stats['in_queue']} | Success rate: {rate:.1f}%"
+                 )
                  
                  if checkpoint_path and results:
                     try:

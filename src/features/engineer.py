@@ -452,6 +452,7 @@ class VideoFeatureEngineer:
             "description",
             # Temporal (basic)
             "publish_date",
+            "is_weekday",
             # Content
             "duration_sec",
             "title_length",
