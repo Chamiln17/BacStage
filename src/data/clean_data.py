@@ -181,11 +181,32 @@ def clean_transcripts(
     
     # Filter: keep only rows where transcript_available is True
     # and transcript_text is not empty/null
-    df_clean = df[
+    mask_valid = (
         (df["transcript_available"] == True) & 
         (df["transcript_text"].notna()) &
         (df["transcript_text"].str.strip() != "")
-    ].copy()
+    )
+    
+    # improved: Check for content corruption (JS/HTML artifacts)
+    # Some transcripts are just YouTube internal code dumps
+    corruption_markers = [
+        'window.', 'ytcfg', 'u003d', 'u0026', 'javascript', 
+        'var ', 'function(', '<html', 'innertubeapi'
+    ]
+    
+    def is_corrupted(text):
+        if not isinstance(text, str): return False
+        text_lower = text.lower()
+        score = sum(1 for m in corruption_markers if m in text_lower)
+        return score >= 2
+        
+    mask_clean = mask_valid & ~df["transcript_text"].apply(is_corrupted)
+    
+    df_clean = df[mask_clean].copy()
+    
+    corrupted_count = mask_valid.sum() - mask_clean.sum()
+    if corrupted_count > 0:
+        logger.info(f"Removed {corrupted_count} corrupted transcripts (JS/JSON artifacts)")
     
     clean_count = len(df_clean)
     removed_count = total_count - clean_count

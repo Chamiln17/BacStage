@@ -729,9 +729,9 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
     
     # Use filtered data if filtering was done
     if getattr(args, "filter", False):
-        input_for_engineer = Path("data/processed/videos_bac_only.csv")
+        input_for_engineer = Path("data/cleaned/videos_cleaned.csv")
     else:
-        input_for_engineer = Path("data/raw/videos_metadata.csv")
+        input_for_engineer = Path("data/cleaned/videos_cleaned.csv") # Default to cleaned
     
     engineer_args = argparse.Namespace(
         input=input_for_engineer,
@@ -846,7 +846,7 @@ Examples:
         "engineer", help="Build ML features from raw data"
     )
     engineer_parser.add_argument(
-        "--input", type=Path, default=Path("data/raw/videos_metadata.csv"),
+        "--input", type=Path, default=Path("data/cleaned/videos_cleaned.csv"),
         help="Input video metadata CSV"
     )
     engineer_parser.add_argument(

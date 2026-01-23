@@ -35,8 +35,8 @@ class VideoFeatureEngineer:
                            Defaults to current datetime if not provided.
             channels_path: Path to channels.csv with subject labels.
                           Defaults to data/raw/channels.csv if not provided.
-            transcripts_path: Path to merged transcripts CSV with transcript features.
-                            Defaults to data/processed/transcripts_merged.csv if not provided.
+            transcripts_path: Path to cleaned transcripts CSV with transcript features.
+                            Defaults to data/cleaned/transcripts_clean.csv if not provided.
         """
         if collection_date is None:
             # Make timezone-aware to match API data
@@ -66,7 +66,7 @@ class VideoFeatureEngineer:
         # Load transcripts
         if transcripts_path is None:
             from pathlib import Path
-            transcripts_path = Path("data/processed/transcripts_merged.csv")
+            transcripts_path = Path("data/cleaned/transcripts_clean.csv")
         
         self.transcripts_df = None
         try:
@@ -610,6 +610,9 @@ class VideoFeatureEngineer:
             "technical_term_density",
             "subject_keyword_count",
             "subject_keyword_density",
+            # others
+            "has_transcript",
+            
         ]
 
         if include_target:
