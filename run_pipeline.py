@@ -655,6 +655,16 @@ def cmd_filter_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_clean(args: argparse.Namespace) -> int:
+    """Run data cleaning pipeline."""
+    from src.data.clean_data import clean_pipeline
+    
+    return clean_pipeline(
+        videos_path=args.videos,
+        transcripts_path=args.transcripts,
+        output_dir=args.output_dir,
+    )
+
 def cmd_full_pipeline(args: argparse.Namespace) -> int:
     """Run the full pipeline: collect -> [filter] -> engineer -> analyze."""
     import logging
@@ -936,6 +946,24 @@ Examples:
         help="Disable progress bar"
     )
     filter_parser.set_defaults(func=cmd_filter_data)
+    
+    # ===== CLEAN =====
+    clean_parser = subparsers.add_parser(
+        "clean", help="Clean and prepare data for feature engineering"
+    )
+    clean_parser.add_argument(
+        "--videos", type=Path, default=Path("data/processed/videos_bac_only.csv"),
+        help="Input video metadata CSV"
+    )
+    clean_parser.add_argument(
+        "--transcripts", type=Path, default=Path("data/processed/transcripts_merged.csv"),
+        help="Input transcripts CSV"
+    )
+    clean_parser.add_argument(
+        "--output-dir", type=Path, default=Path("data/cleaned"),
+        help="Output directory for cleaned data"
+    )
+    clean_parser.set_defaults(func=cmd_clean)
     
     # ===== FULL-PIPELINE =====
     full_parser = subparsers.add_parser(

@@ -104,13 +104,14 @@ SIC/
 
 All operations use `run_pipeline.py`:
 
-| Command | Description |
-|---------|-------------|
-| `full-pipeline` | Run everything: collect + [filter] + engineer + analyze |
-| `collect` | Gather video metadata and channel statistics |
-| `filter_data` | Apply data-driven Bac 3AS filter |
-| `engineer` | Build ML features from raw data |
-| `analyze` | Quick stats on collected data |
+| Command         | Description                                                     |
+| --------------- | --------------------------------------------------------------- |
+| `full-pipeline` | Run everything: collect + [filter] + clean + engineer + analyze |
+| `collect`       | Gather video metadata and channel statistics                    |
+| `filter_data`   | Apply data-driven Bac 3AS filter                                |
+| `clean`         | Clean and prepare data for feature engineering                  |
+| `engineer`      | Build ML features from raw data                                 |
+| `analyze`       | Quick stats on collected data                                   |
 
 ### Common Options
 
@@ -167,6 +168,13 @@ All operations use `run_pipeline.py`:
 - **Balanced Rules**: Hard include/exclude with soft positives for ambiguous cases
 - **Minimal Maintenance**: ~30 grade markers, auto-updated priors and keywords
 
+### Data Cleaning
+
+- **Missing Value Imputation**: Fills `description` and `tags` with empty strings
+- **Transcript Flag**: Creates `has_transcript` boolean for downstream modeling
+- **Feature Imputation**: Sets transcript-derived features to 0 for videos without transcripts
+- **Type Validation**: Ensures dates are datetime, counts are integers
+
 ### Feature Engineering
 
 - **Temporal**: Upload timing, video age, seasonal patterns
@@ -178,10 +186,10 @@ All operations use `run_pipeline.py`:
 
 YouTube Data API v3: 10,000 quota units per day
 
-| Operation | Old Method | New Method | Savings |
-|-----------|-----------|-----------|---------|
-| Discover 200 videos | 400 units | 4 units | 100x |
-| Enrich 200 videos | 200 units | 4 units | 50x |
+| Operation              | Old Method      | New Method   | Savings  |
+| ---------------------- | --------------- | ------------ | -------- |
+| Discover 200 videos    | 400 units       | 4 units      | 100x     |
+| Enrich 200 videos      | 200 units       | 4 units      | 50x      |
 | **Total (4 channels)** | **2,400 units** | **24 units** | **100x** |
 
 This enables daily refreshes within the quota limit.
@@ -235,6 +243,46 @@ uv run mypy src/
 - **New_Filtering_Guide.md** - Data-driven filtering strategy details
 - **data/README.md** - Data directory documentation
 - **config/filter_config.yaml** - Filter tuning parameters
+
+## End-to-End Pipeline Workflow
+
+The complete data pipeline follows these stages:
+
+```
+Collect → Filter → Clean → Engineer → Model
+```
+
+### Step 1: Collect Raw Data
+Fetches video metadata and channel statistics from YouTube API.
+```bash
+uv run python run_pipeline.py collect --channels data/raw/channels.csv
+```
+
+### Step 2: Filter to Bac 3AS Content
+Applies data-driven filtering to identify Bac-relevant videos.
+```bash
+uv run python run_pipeline.py filter_data
+```
+**Output**: `data/processed/videos_bac_only.csv`
+
+### Step 3: Clean Data
+Handles missing values, creates `has_transcript` flag, validates types.
+```bash
+uv run python run_pipeline.py clean
+```
+**Output**: `data/cleaned/videos_cleaned.csv`, `data/cleaned/transcripts_clean.csv`
+
+### Step 4: Engineer Features
+Builds ML-ready features including transcript analysis.
+```bash
+uv run python run_pipeline.py engineer --input data/cleaned/videos_cleaned.csv
+```
+**Output**: `data/processed/videos_engineered.csv`
+
+### Step 5: Train Model
+(Coming soon)
+
+---
 
 ## License
 

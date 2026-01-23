@@ -353,6 +353,9 @@ def load_channel_subjects(channels_path: Path) -> Dict[str, str]:
     if "channel_id" not in df.columns or "subjects" not in df.columns:
         return {}
 
+    # Strip whitespace from subjects to prevent duplicates
+    df["subjects"] = df["subjects"].str.strip()
+
     return dict(zip(df["channel_id"], df["subjects"], strict=True))
 
 
