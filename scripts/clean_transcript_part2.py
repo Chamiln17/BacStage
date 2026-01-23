@@ -144,8 +144,8 @@ def main():
     """Main entry point."""
     base_path = Path("e:/programming/SIC/data/processed")
     
-    input_file = base_path / "transcripts_part2_checkpoint.csv"
-    output_file = base_path / "transcripts_part2_checkpoint_cleaned.csv"
+    input_file = base_path / "transcripts_merged.csv"
+    output_file = base_path / "transcripts_merged.csv"
     
     if not input_file.exists():
         print(f"❌ Input file not found: {input_file}")
