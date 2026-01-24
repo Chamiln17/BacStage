@@ -760,6 +760,77 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def cmd_train(args: argparse.Namespace) -> int:
+    """Train engagement prediction model."""
+    from src.models.train_model import ModelTrainer, load_data
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        df = load_data(args.input)
+        trainer = ModelTrainer(args.output_dir, random_seed=args.random_seed)
+        trainer.train(df, model_type=args.model_type, use_arabert=not args.no_arabert)
+        return 0
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
+        return 1
+
+
+def cmd_predict(args: argparse.Namespace) -> int:
+    """Predict engagement for videos."""
+    from src.models.predict_model import EngagementPredictor
+    import pandas as pd
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    input_path = args.input
+    output_path = args.output
+    
+    try:
+        predictor = EngagementPredictor(model_dir=args.model_dir)
+        
+        # Determine input type
+        if str(input_path).endswith('.json'):
+            with open(input_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    # Single
+                    result = predictor.predict(data)
+                    output_data = result
+                elif isinstance(data, list):
+                    # Batch
+                    df = pd.DataFrame(data)
+                    df_res = predictor.predict_batch(df)
+                    output_data = df_res.to_dict(orient='records')
+        else:
+            # Assume CSV
+            df = pd.read_csv(input_path)
+            df_res = predictor.predict_batch(df)
+            output_data = df_res.to_dict(orient='records')
+            
+        # Output
+        if str(output_path) == "stdout":
+            print(json.dumps(output_data, indent=2, ensure_ascii=False))
+        else:
+            # If CSV input and CSV output requested
+            if str(args.format) == 'csv' or str(output_path).endswith('.csv'):
+                if isinstance(output_data, list):
+                    pd.DataFrame(output_data).to_csv(output_path, index=False)
+                else:
+                    pd.DataFrame([output_data]).to_csv(output_path, index=False)
+            else:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(output_data, f, indent=2, ensure_ascii=False)
+            logger.info(f"Predictions saved to {output_path}")
+            
+        return 0
+    except Exception as e:
+        logger.error(f"Prediction failed: {e}")
+        return 1
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -995,7 +1066,62 @@ Examples:
     )
     full_parser.set_defaults(func=cmd_full_pipeline)
     
+    # ===== TRAIN =====
+    train_parser = subparsers.add_parser(
+        "train", help="Train engagement prediction model"
+    )
+    train_parser.add_argument(
+        "--input", type=Path, default=Path("data/processed/videos_engineered.csv"),
+        help="Input data path (default: data/processed/videos_engineered.csv)"
+    )
+    train_parser.add_argument(
+        "--output-dir", type=Path, default=Path("models"),
+        help="Model output directory (default: models/)"
+    )
+    train_parser.add_argument(
+        "--model-type", type=str, default="catboost",
+        choices=["catboost", "xgboost", "lightgbm", "rf"],
+        help="Model type (default: catboost)"
+    )
+    train_parser.add_argument(
+        "--cv-folds", type=int, default=0,
+        help="Number of CV folds (default: 0 = no CV)"
+    )
+    train_parser.add_argument(
+        "--no-arabert", action="store_true",
+        help="Skip AraBERT embeddings (faster training)"
+    )
+    train_parser.add_argument(
+        "--random-seed", type=int, default=42,
+        help="Random seed (default: 42)"
+    )
+    train_parser.set_defaults(func=cmd_train)
+    
+    # ===== PREDICT =====
+    predict_parser = subparsers.add_parser(
+        "predict", help="Predict engagement for videos"
+    )
+    predict_parser.add_argument(
+        "--input", type=Path, required=True,
+        help="Input video data (CSV or JSON)"
+    )
+    predict_parser.add_argument(
+        "--model-dir", type=Path, default=Path("models"),
+        help="Model directory (default: models/)"
+    )
+    predict_parser.add_argument(
+        "--output", type=str, default="stdout",
+        help="Output path or 'stdout' (default: stdout)"
+    )
+    predict_parser.add_argument(
+        "--format", type=str, default="json",
+        choices=["json", "csv"],
+        help="Output format (default: json)"
+    )
+    predict_parser.set_defaults(func=cmd_predict)
+    
     # Parse and execute
+
     args = parser.parse_args()
     
     if args.command is None:
