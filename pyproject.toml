@@ -26,6 +26,9 @@ dependencies = [
     "pysocks>=1.7.1",
     "yt-dlp>=2025.12.8",
     "stem>=1.8.2",
+    "statsmodels>=0.14.6",
+    "optuna>=4.7.0",
+    "catboost>=1.2.8",
 ]
 
 # PyTorch CUDA index for GPU support

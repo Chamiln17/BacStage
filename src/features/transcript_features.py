@@ -18,6 +18,12 @@ from textstat import (
     automated_readability_index,
 )
 
+from src.features.bac_keywords import (
+    count_domain_keywords,
+    count_bac_markers,
+    count_pedagogical_markers,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -137,9 +143,13 @@ def extract_transcript_features(
     if duration_sec and duration_sec > 0:
         features['speech_rate_wpm'] = (word_count / duration_sec) * 60
         features['speech_rate_optimal'] = 1 if 120 <= features['speech_rate_wpm'] <= 180 else 0
+        features['speech_rate_above_optimal'] = 1 if features['speech_rate_wpm'] > 180 else 0
+        features['speech_rate_below_optimal'] = 1 if features['speech_rate_wpm'] < 100 else 0
     else:
         features['speech_rate_wpm'] = None
         features['speech_rate_optimal'] = None
+        features['speech_rate_above_optimal'] = None
+        features['speech_rate_below_optimal'] = None
     
     # ============================================
     # 5. EDUCATIONAL MARKERS
@@ -191,25 +201,29 @@ def extract_transcript_features(
     features['technical_term_density'] = technical_count / word_count
     
     # ============================================
-    # 7. SUBJECT-SPECIFIC KEYWORDS
+    # 7. DOMAIN-SPECIFIC KEYWORDS (from bac_keywords module)
     # ============================================
-    subject_keywords = {
-        'Mathematics': ['derivative', 'integral', 'function', 'limit', 'equation',
-                       'مشتقة', 'تكامل', 'دالة', 'dérivée', 'intégrale'],
-        'Physics': ['force', 'energy', 'momentum', 'velocity', 'wave',
-                   'قوة', 'طاقة', 'سرعة', 'force', 'énergie'],
-        'Science': ['molecule', 'cell', 'organism', 'reaction', 'evolution',
-                   'خلية', 'تفاعل', 'cellule', 'réaction'],
-    }
+    domain_keyword_count = count_domain_keywords(transcript_text, subject)
+    features['domain_keyword_count'] = domain_keyword_count
+    features['domain_keyword_density'] = domain_keyword_count / word_count if word_count > 0 else 0.0
     
-    if subject and subject in subject_keywords:
-        keywords = subject_keywords[subject]
-        match_count = sum(text_lower.count(kw.lower()) for kw in keywords)
-        features['subject_keyword_count'] = match_count
-        features['subject_keyword_density'] = match_count / word_count
-    else:
-        features['subject_keyword_count'] = 0
-        features['subject_keyword_density'] = 0.0
+    # Legacy compatibility (subject_keyword_count mapped to domain)
+    features['subject_keyword_count'] = domain_keyword_count
+    features['subject_keyword_density'] = features['domain_keyword_density']
+    
+    # ============================================
+    # 8. BAC EXAM MARKERS
+    # ============================================
+    bac_marker_count = count_bac_markers(transcript_text)
+    features['bac_marker_count'] = bac_marker_count
+    features['bac_marker_density'] = bac_marker_count / word_count if word_count > 0 else 0.0
+    
+    # ============================================
+    # 9. PEDAGOGICAL MARKERS
+    # ============================================
+    pedagogical_count = count_pedagogical_markers(transcript_text)
+    features['pedagogical_marker_count'] = pedagogical_count
+    features['pedagogical_marker_density'] = pedagogical_count / word_count if word_count > 0 else 0.0
     
     return features
 
@@ -229,6 +243,8 @@ def _empty_features() -> dict:
         'automated_readability_index': None,
         'speech_rate_wpm': None,
         'speech_rate_optimal': None,
+        'speech_rate_above_optimal': None,
+        'speech_rate_below_optimal': None,
         'question_count': 0,
         'question_density': 0.0,
         'example_count': 0,
@@ -239,8 +255,14 @@ def _empty_features() -> dict:
         'contrast_density': 0.0,
         'technical_term_count': 0,
         'technical_term_density': 0.0,
+        'domain_keyword_count': 0,
+        'domain_keyword_density': 0.0,
         'subject_keyword_count': 0,
         'subject_keyword_density': 0.0,
+        'bac_marker_count': 0,
+        'bac_marker_density': 0.0,
+        'pedagogical_marker_count': 0,
+        'pedagogical_marker_density': 0.0,
     }
 
 

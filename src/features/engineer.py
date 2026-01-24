@@ -14,6 +14,17 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Import domain-specific keywords
+try:
+    from src.features.bac_keywords import (
+        count_bac_markers,
+        count_pedagogical_markers,
+        get_exam_keyword_intensity,
+    )
+    HAS_BAC_KEYWORDS = True
+except ImportError:
+    HAS_BAC_KEYWORDS = False
+
 
 class VideoFeatureEngineer:
     """
@@ -318,9 +329,37 @@ class VideoFeatureEngineer:
         df["is_exam_focused"] = (
             df["title"].str.lower().str.contains(pattern, na=False)
         ).astype(int)
+        
+        # TIER 2: Additional text features
+        # Is title a question? (engagement signal)
+        df["is_title_question"] = (
+            df["title"].str.strip().str.endswith(("?", "؟"))
+        ).astype(int)
+        
+        # Exam keyword intensity (normalized by word count)
+        if HAS_BAC_KEYWORDS:
+            df["exam_keyword_intensity"] = df.apply(
+                lambda row: get_exam_keyword_intensity(
+                    str(row["title"]) + " " + str(row["description"]),
+                    row["title_word_count"] + len(str(row["description"]).split())
+                ), axis=1
+            )
+            
+            # Bac markers in title/description
+            df["title_bac_markers"] = df["title"].apply(
+                lambda x: count_bac_markers(str(x)) if pd.notna(x) else 0
+            )
+            df["desc_pedagogical_markers"] = df["description"].apply(
+                lambda x: count_pedagogical_markers(str(x)) if pd.notna(x) else 0
+            )
+        else:
+            df["exam_keyword_intensity"] = 0.0
+            df["title_bac_markers"] = 0
+            df["desc_pedagogical_markers"] = 0
 
         logger.debug(
-            f"Text features: exam_focused={df['is_exam_focused'].sum()}"
+            f"Text features: exam_focused={df['is_exam_focused'].sum()}, "
+            f"title_questions={df['is_title_question'].sum()}"
         )
 
         return df
@@ -610,6 +649,20 @@ class VideoFeatureEngineer:
             "technical_term_density",
             "subject_keyword_count",
             "subject_keyword_density",
+            # New Tier 2 text features
+            "is_title_question",
+            "exam_keyword_intensity",
+            "title_bac_markers",
+            "desc_pedagogical_markers",
+            # New transcript features
+            "speech_rate_above_optimal",
+            "speech_rate_below_optimal",
+            "domain_keyword_count",
+            "domain_keyword_density",
+            "bac_marker_count",
+            "bac_marker_density",
+            "pedagogical_marker_count",
+            "pedagogical_marker_density",
             # others
             "has_transcript",
             
@@ -624,3 +677,113 @@ class VideoFeatureEngineer:
         logger.info(f"Selected {len(available_columns)} features for modeling")
 
         return df[available_columns].copy()
+    
+    def select_best_features(
+        self,
+        df: pd.DataFrame,
+        target_col: str = "engagement_score",
+        vif_threshold: float = 10.0,
+        correlation_threshold: float = 0.95,
+        min_target_correlation: float = 0.05,
+    ) -> pd.DataFrame:
+        """
+        Select best features using VIF and correlation analysis.
+        
+        Reduces multicollinearity and removes uninformative features.
+        
+        Args:
+            df: DataFrame with all features
+            target_col: Target variable column name
+            vif_threshold: Maximum VIF value (features above are removed)
+            correlation_threshold: Max correlation between features (remove one if higher)
+            min_target_correlation: Minimum absolute correlation with target to keep
+            
+        Returns:
+            DataFrame with selected features
+        """
+        from statsmodels.stats.outliers_influence import variance_inflation_factor
+        
+        logger.info("Starting feature selection with VIF and correlation analysis")
+        
+        # Get numeric columns only (exclude identifiers and target)
+        exclude_cols = [
+            "video_id", "title", "description", "channel_id", "channel_title",
+            "publish_date", "subject", "engagement_category", target_col
+        ]
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        feature_cols = [c for c in numeric_cols if c not in exclude_cols]
+        
+        if not feature_cols:
+            logger.warning("No numeric feature columns found")
+            return df
+        
+        X = df[feature_cols].copy()
+        
+        # Handle missing values for VIF calculation
+        X = X.fillna(0)
+        
+        # Step 1: Remove highly correlated features (keep one from each pair)
+        corr_matrix = X.corr().abs()
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        
+        to_drop_corr = set()
+        for col in upper.columns:
+            highly_correlated = upper.index[upper[col] > correlation_threshold].tolist()
+            if highly_correlated:
+                to_drop_corr.update(highly_correlated)
+        
+        if to_drop_corr:
+            logger.info(f"Removing {len(to_drop_corr)} features due to high inter-correlation: {list(to_drop_corr)[:5]}...")
+            X = X.drop(columns=list(to_drop_corr))
+            feature_cols = [c for c in feature_cols if c not in to_drop_corr]
+        
+        # Step 2: VIF filtering (iterative removal)
+        removed_vif = []
+        while True:
+            if len(X.columns) < 2:
+                break
+            
+            # Calculate VIF for each feature
+            vif_data = []
+            for i, col in enumerate(X.columns):
+                try:
+                    vif = variance_inflation_factor(X.values, i)
+                    vif_data.append((col, vif))
+                except Exception:
+                    vif_data.append((col, 0))
+            
+            # Find max VIF
+            vif_df = pd.DataFrame(vif_data, columns=["feature", "VIF"])
+            max_vif_row = vif_df.loc[vif_df["VIF"].idxmax()]
+            
+            if max_vif_row["VIF"] > vif_threshold:
+                removed_vif.append(max_vif_row["feature"])
+                X = X.drop(columns=[max_vif_row["feature"]])
+            else:
+                break
+        
+        if removed_vif:
+            logger.info(f"Removed {len(removed_vif)} features due to high VIF: {removed_vif[:5]}...")
+        
+        # Step 3: Remove features with low correlation to target
+        if target_col in df.columns:
+            target = df[target_col].fillna(0)
+            low_corr_features = []
+            for col in X.columns:
+                corr = X[col].corr(target)
+                if abs(corr) < min_target_correlation:
+                    low_corr_features.append(col)
+            
+            if low_corr_features:
+                logger.info(f"Removing {len(low_corr_features)} features with low target correlation")
+                X = X.drop(columns=low_corr_features)
+        
+        selected_features = X.columns.tolist()
+        logger.info(f"Feature selection complete: {len(selected_features)} features retained from {len(feature_cols)}")
+        
+        # Return full DataFrame with only selected numeric features + non-numeric columns
+        keep_cols = exclude_cols + selected_features + [target_col]
+        keep_cols = [c for c in keep_cols if c in df.columns]
+        
+        return df[keep_cols].copy()
+
