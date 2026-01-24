@@ -120,3 +120,34 @@ def test_predict_batch(mock_engineer_cls, mock_extractor_cls, mock_artifacts):
     
     assert "predicted_score" in res_df.columns
     assert len(res_df) == 2
+
+@patch("src.models.predict_model.TextEmbeddingExtractor")
+@patch("src.features.engineer.VideoFeatureEngineer")
+def test_predict_with_missing_fields(mock_engineer_cls, mock_extractor_cls, mock_artifacts):
+    """Test prediction robustness with missing optional fields."""
+    mock_engineer = MagicMock()
+    # Return dataframe with Nans
+    mock_engineer.fit_transform.return_value = pd.DataFrame({
+        "view_count": [np.nan], 
+        "like_count": [0], 
+        "duration_sec": [np.nan], 
+        "subject_Maths": [0], 
+        "feature_5": [0]
+    })
+    mock_engineer_cls.return_value = mock_engineer
+    
+    # Mock extractor
+    mock_extractor = MagicMock()
+    mock_extractor.get_embeddings.return_value = np.zeros((1, 768))
+    mock_extractor_cls.return_value = mock_extractor
+    
+    predictor = EngagementPredictor(model_dir=mock_artifacts)
+    
+    # Minimal input
+    input_data = {"title": "Test", "description": ""}
+    
+    # Should not crash
+    result = predictor.predict(input_data)
+    
+    assert "engagement_score" in result
+    assert result["engagement_score"] is not None

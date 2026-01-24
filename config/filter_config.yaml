@@ -12,8 +12,8 @@ channel_prior:
 # Soft positive rules (OR logic by default)
 # For ambiguous videos in Bac-heavy channels, require at least one soft positive
 soft_positives:
-  duration_min: 60 # seconds (2 minutes) - filters out short clips/teasers
-  require_tfidf: true # if true, TF-IDF hit is mandatory for ambiguous videos
+  duration_min: 120 # seconds (2 minutes) - filters out short clips/teasers
+  require_tfidf: false # if true, TF-IDF hit is mandatory for ambiguous videos
   require_duration: true # if true, duration gate is mandatory for ambiguous videos
   allow_channel_subject: true # use channels.csv subject as a soft positive
 
@@ -21,7 +21,7 @@ soft_positives:
 # Controls how automatic keyword discovery works
 tfidf:
   top_n_terms: 100 # Number of top discriminative terms to keep
-  min_df: 3 # Minimum document frequency (ignore rare terms)
+  min_df: 5 # Minimum document frequency (ignore rare terms)
   max_df: 0.8 # Maximum document frequency (ignore very common terms)
   ngram_range: [1, 2] # Unigrams + bigrams
   analyzer: "char_wb" # Character n-grams with word boundaries (good for Arabic)

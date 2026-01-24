@@ -100,6 +100,7 @@ class EngagementPredictor:
         
         # Engineer features
         df_engineered = engineer.fit_transform(df)
+        df_engineered = df_engineered.fillna(0)
         
         # One-hot encoding (align with training columns)
         # This is difficult for single-instance prediction if we rely on pd.get_dummies

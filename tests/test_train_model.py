@@ -42,6 +42,18 @@ def test_prepare_numerical_features(trainer, sample_data):
     # Categorical subject should be one-hot encoded
     assert any(col.startswith("subject_") for col in X.columns) if "subject_Physics" in X.columns else True
 
+def test_prepare_numerical_features_with_nans(trainer, sample_data):
+    """Test robustness against NaN values."""
+    # Inject NaNs
+    sample_data.loc[0:5, "view_count"] = np.nan
+    sample_data.loc[5:10, "duration_sec"] = np.nan
+    
+    # Should not raise error and should fill NaNs
+    X, y = trainer.prepare_numerical_features(sample_data)
+    
+    assert len(X) == 30
+    assert not X.isnull().values.any() # Verify no NaNs remain
+
 @patch("src.models.train_model.TextEmbeddingExtractor")
 def test_extract_text_features(mock_extractor_cls, trainer, sample_data):
     """Test text feature extraction with mocked AraBERT."""

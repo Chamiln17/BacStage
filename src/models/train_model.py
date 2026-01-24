@@ -107,6 +107,10 @@ class ModelTrainer:
         
         df_encoded = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
         
+        # Handle missing values (fill with 0 as per notebook strategy)
+        # This is critical for features like transcript counts where missing implies 0
+        df_encoded = df_encoded.fillna(0)
+        
         # Select numerical features
         numeric_cols = df_encoded.select_dtypes(include=[np.number]).columns.tolist()
         feature_cols = [c for c in numeric_cols if c not in EXCLUDE_COLS and c != TARGET_COL]
