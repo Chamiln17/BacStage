@@ -10,7 +10,46 @@ Sources:
 - docs/00_data_filtering_manual/random_keywordspersubject.md (3AS curriculum)
 """
 
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
+
+# =============================================================================
+# SUBJECTS
+# =============================================================================
+
+# The canonical subject names: channels.csv, the knowledge base files, the app,
+# and the model's subject features all use exactly these spellings.
+SUBJECTS = (
+    "Arabic",
+    "English",
+    "French",
+    "History & Geography",
+    "Islamic Sciences",
+    "Maths",
+    "Natural Sciences",
+    "Philosophy",
+    "Physics",
+)
+
+SUBJECT_ALIASES: Dict[str, str] = {
+    "math": "Maths",
+    "mathematics": "Maths",
+    "science": "Natural Sciences",
+    "sciences": "Natural Sciences",
+    "history": "History & Geography",
+    "geography": "History & Geography",
+    "islamic studies": "Islamic Sciences",
+}
+
+
+def canonical_subject(name: str) -> str:
+    """Return the canonical spelling of a subject, or raise ValueError if unknown."""
+    cleaned = str(name).strip()
+    for subject in SUBJECTS:
+        if cleaned.lower() == subject.lower():
+            return subject
+    if cleaned.lower() in SUBJECT_ALIASES:
+        return SUBJECT_ALIASES[cleaned.lower()]
+    raise ValueError(f"Unknown subject {name!r}. Use one of: {', '.join(SUBJECTS)}")
 
 # =============================================================================
 # SUBJECT-SPECIFIC CURRICULUM KEYWORDS
@@ -114,8 +153,10 @@ QUESTION_MARKERS: List[str] = [
 # AGGREGATED DICTIONARIES
 # =============================================================================
 
+# Arabic, English and French have no curriculum list: count_domain_keywords
+# uses all subjects' keywords for them.
 SUBJECT_KEYWORDS: Dict[str, List[str]] = {
-    "Mathematics": MATHEMATICS_KEYWORDS,
+    "Maths": MATHEMATICS_KEYWORDS,
     "Physics": PHYSICS_KEYWORDS,
     "Natural Sciences": NATURAL_SCIENCES_KEYWORDS,
     "History & Geography": HISTORY_KEYWORDS + GEOGRAPHY_KEYWORDS,
@@ -132,27 +173,26 @@ ALL_BAC_MARKERS: Set[str] = {m.lower() for m in BAC_EXAM_MARKERS}
 ALL_PEDAGOGICAL_MARKERS: Set[str] = {m.lower() for m in EXPLANATION_MARKERS}
 
 
-def count_domain_keywords(text: str, subject: str = None) -> int:
+def count_domain_keywords(text: str, subject: Optional[str] = None) -> int:
     """
-    Count domain-specific keywords in text.
-    
+    Count curriculum keywords in text.
+
     Args:
         text: Input text (title, description, or transcript)
-        subject: Optional subject to filter keywords
-        
+        subject: Canonical subject. Subjects without a curriculum list
+            (the languages) and None use every subject's keywords.
+
     Returns:
         Count of matching keywords
     """
     if not text:
         return 0
-    
+
     text_lower = text.lower()
-    
-    if subject and subject in SUBJECT_KEYWORDS:
+    if subject in SUBJECT_KEYWORDS:
         keywords = [kw.lower() for kw in SUBJECT_KEYWORDS[subject]]
     else:
         keywords = ALL_DOMAIN_KEYWORDS
-    
     return sum(1 for kw in keywords if kw in text_lower)
 
 

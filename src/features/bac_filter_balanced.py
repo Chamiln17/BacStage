@@ -23,6 +23,8 @@ import pandas as pd
 import yaml
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from src.features.bac_keywords import canonical_subject
+
 
 class BalancedBacFilter:
     """
@@ -305,8 +307,7 @@ def load_channel_subjects(channels_path: Path) -> Dict[str, str]:
     if "channel_id" not in df.columns or "subjects" not in df.columns:
         return {}
 
-    # Strip whitespace from subjects to prevent duplicates
-    df["subjects"] = df["subjects"].str.strip()
+    df["subjects"] = df["subjects"].map(canonical_subject)
 
     return dict(zip(df["channel_id"], df["subjects"], strict=True))
 

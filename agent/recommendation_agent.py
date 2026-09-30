@@ -87,6 +87,8 @@ class RecommendationPromptTemplate:
 
 **الوصف:** {description}
 
+{prediction_section}
+
 {transcript_metrics_section}
 
 {thumbnail_section}
@@ -190,7 +192,8 @@ class RecommendationPromptTemplate:
         subject_benchmarks: Optional[Dict] = None,
         metric_analysis: Optional[Dict] = None,
         thumbnail_analysis: Optional[Dict] = None,
-        total_videos: int = 10000
+        total_videos: int = 10000,
+        prediction: Optional[Dict] = None,
     ) -> str:
         """Build the complete prompt for the LLM."""
         
@@ -255,6 +258,7 @@ class RecommendationPromptTemplate:
             duration_minutes=video.duration_minutes or "غير محدد",
             exam_focus_text=exam_focus_text,
             description=video.description or "لا يوجد وصف",
+            prediction_section=cls._format_prediction(prediction),
             transcript_metrics_section=transcript_section,
             thumbnail_section=thumbnail_section,
             subject_benchmarks=benchmarks_text,
@@ -367,6 +371,23 @@ class RecommendationPromptTemplate:
         
         return "\n".join(formatted)
     
+    CATEGORY_AR = {"Low": "منخفض", "Medium": "متوسط", "High": "مرتفع"}
+    THIRD_AR = {"Low": "الثلث الأدنى", "Medium": "الثلث الأوسط", "High": "الثلث الأعلى"}
+
+    @classmethod
+    def _format_prediction(cls, prediction: Optional[Dict]) -> str:
+        """One section with the engagement model's estimate for this planned video."""
+        if not prediction:
+            return ""
+        category = prediction["engagement_category"]
+        text = (
+            f"**التفاعل المتوقع (نموذج التعلم الآلي):** {cls.CATEGORY_AR[category]} "
+            f"({cls.THIRD_AR[category]} مقارنة بفيديوهات التدريب، درجة {prediction['engagement_score']:.2f})"
+        )
+        if not prediction.get("known_channel", True):
+            text += "\nالقناة غير موجودة في بيانات التدريب، لذلك التقدير مبني على متوسطات القنوات."
+        return text + "\nاربط توصياتك بهذا التقدير: ما الذي يرفع التفاعل المتوقع؟"
+
     @staticmethod
     def _format_benchmarks(benchmarks: Optional[Dict], subject: str) -> str:
         """Format subject benchmarks for the prompt."""
@@ -436,14 +457,15 @@ class RecommendationAgent:
     def analyze_video(
         self,
         video: VideoInput,
-        predicted_score: Optional[float] = None
+        prediction: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Analyze a video and generate recommendations.
         
         Args:
             video: Video characteristics
-            predicted_score: Optional ML-predicted engagement score
+            prediction: Optional EngagementPredictor.predict() output
+                (engagement_score, engagement_category, known_channel)
             
         Returns:
             Dictionary with analysis and recommendations
@@ -490,7 +512,8 @@ class RecommendationAgent:
             subject_benchmarks=subject_benchmarks,
             metric_analysis=metric_analysis,
             thumbnail_analysis=thumbnail_analysis,
-            total_videos=10030
+            total_videos=10030,
+            prediction=prediction,
         )
         
         # 6. Generate recommendations with Groq (low temperature for factual output)
@@ -522,7 +545,7 @@ class RecommendationAgent:
                 "is_exam_focused": video.is_exam_focused,
                 "has_thumbnail": video.thumbnail_path is not None
             },
-            "predicted_score": predicted_score,
+            "prediction": prediction,
             "retrieved_practices_count": len(rag_results['retrieved_practices']),
             "subject_benchmarks": subject_benchmarks,
             "metric_analysis": metric_analysis,
@@ -657,10 +680,9 @@ def create_recommendation_report(result: Dict[str, Any]) -> str:
     report.append("")
     
     # Predicted score
-    if result.get('predicted_score'):
-        score = result['predicted_score']
-        report.append("## النتيجة المتوقعة")
-        report.append(f"**درجة التفاعل المتوقعة:** {score:.1f}/100")
+    if result.get('prediction'):
+        report.append("## التفاعل المتوقع")
+        report.append(RecommendationPromptTemplate._format_prediction(result['prediction']).split("\n")[0])
         report.append("")
     
     # Thumbnail analysis

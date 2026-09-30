@@ -23,6 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from src.features.bac_keywords import (
+    canonical_subject,
     count_bac_markers,
     count_pedagogical_markers,
     get_exam_keyword_intensity,
@@ -321,6 +322,7 @@ class VideoFeatureEngineer:
 
         channel = self.channel_table.reindex(df["channel_id"]).reset_index(drop=True)
         given = df["subject"] if "subject" in df else pd.Series(np.nan, index=df.index)
+        given = given.map(lambda x: x if pd.isna(x) or x == UNKNOWN_SUBJECT else canonical_subject(x))
         df["subject"] = given.fillna(channel["subject"]).fillna(UNKNOWN_SUBJECT)
         for col in CHANNEL_FEATURES:
             df[col] = channel[col].fillna(self.channel_defaults[col]).values
@@ -402,7 +404,8 @@ class VideoFeatureEngineer:
         """
         logger.debug("Creating temporal features")
 
-        df["days_since_publish"] = (self.reference_date - df["publish_date"]).dt.days
+        # Clipped: a planned video dated after the reference date has age 0.
+        df["days_since_publish"] = (self.reference_date - df["publish_date"]).dt.days.clip(lower=0)
 
         df["publish_hour"] = df["publish_date"].dt.hour
         df["publish_day_of_week"] = df["publish_date"].dt.day_name()

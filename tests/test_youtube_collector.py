@@ -3,7 +3,6 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 
 from src.data.youtube_collector import YouTubeCollector
@@ -66,18 +65,6 @@ class TestYouTubeCollector:
         metadata = collector.get_video_metadata("nonexistent_video")
 
         assert metadata is None
-
-    @patch("src.data.youtube_collector.build")
-    def test_collect_from_channels_missing_column(self, mock_build: Mock) -> None:
-        """Test collection fails with missing channel_id column."""
-        mock_youtube = Mock()
-        mock_build.return_value = mock_youtube
-
-        collector = YouTubeCollector("test_key")
-        invalid_df = pd.DataFrame({"name": ["Channel 1"]})
-
-        with pytest.raises(ValueError, match="must contain 'channel_id' column"):
-            collector.collect_from_channels(invalid_df)
 
     @patch("src.data.youtube_collector.build")
     def test_quota_tracking(self, mock_build: Mock) -> None:

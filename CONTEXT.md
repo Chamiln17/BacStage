@@ -7,6 +7,9 @@ Glossary for **BacStage**, which predicts engagement for Algerian Bac lessons on
 **Bac 3AS video**
 A YouTube video aimed at Algerian students in their final secondary year (3ème année secondaire) preparing for the Baccalauréat exam. The unit the project studies; everything else is filtered out.
 
+**Subject**
+The Bac subject a video teaches. Exactly nine: Arabic, English, French, History & Geography, Islamic Sciences, Maths, Natural Sciences, Philosophy, Physics. A channel teaches one subject.
+
 **Snapshot**
 One observation of a video's public statistics (views, likes, comments) at a given date. A video accumulates snapshots across collection runs.
 
