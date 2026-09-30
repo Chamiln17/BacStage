@@ -1,21 +1,27 @@
 """
-Balanced Bac 3AS Filter (Data-Driven Approach)
+Balanced Bac 3AS filter (data-driven).
 
-This module implements a balanced filtering strategy that:
-1. Uses channel priors (data-driven) to identify Bac-heavy channels
-2. Uses TF-IDF discovered terms for soft positives
-3. Applies minimal grade markers for hard include/exclude decisions
+``run_bac_filter`` is the whole filter in one call: it learns which channels
+are Bac-heavy (channel priors), discovers Bac-associated title terms with
+TF-IDF, then classifies every video. The strategy:
 
-The filter maximizes recall while maintaining quality, with minimal manual
-keyword maintenance.
+1. Channel priors identify Bac-heavy channels.
+2. TF-IDF discovered terms act as soft positives.
+3. Grade markers make the hard include/exclude decisions.
+
+All markers and thresholds come from ``config/filter_config.yaml``; there are
+no defaults in code, so the YAML is the single place to tune the filter.
 """
 
-import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+import numpy as np
 import pandas as pd
+import yaml
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 class BalancedBacFilter:
@@ -30,9 +36,9 @@ class BalancedBacFilter:
 
     def __init__(
         self,
-        bac_markers: Optional[List[str]] = None,
-        non_bac_markers: Optional[List[str]] = None,
-        strong_bac_intent: Optional[List[str]] = None,
+        bac_markers: List[str],
+        non_bac_markers: List[str],
+        strong_bac_intent: List[str],
         bac_heavy_channels: Optional[Set[str]] = None,
         tfidf_terms: Optional[List[str]] = None,
         channel_subjects: Optional[Dict[str, str]] = None,
@@ -45,55 +51,20 @@ class BalancedBacFilter:
         Initialize the balanced Bac filter.
 
         Args:
-            bac_markers: List of positive Bac markers
-            non_bac_markers: List of negative (non-Bac) markers
+            bac_markers: Positive Bac markers
+            non_bac_markers: Negative (non-Bac) markers
             strong_bac_intent: Phrases that override non-Bac markers in conflicts
-            bac_heavy_channels: Set of channel IDs classified as Bac-heavy
-            tfidf_terms: List of TF-IDF discovered Bac-associated terms
-            channel_subjects: Dict mapping channel_id -> subject
+            bac_heavy_channels: Channel IDs classified as Bac-heavy
+            tfidf_terms: TF-IDF discovered Bac-associated terms
+            channel_subjects: channel_id -> subject
             duration_min: Minimum duration (seconds) for soft positive
             require_tfidf: If True, TF-IDF hit is mandatory for ambiguous
             require_duration: If True, duration gate is mandatory for ambiguous
             allow_channel_subject: If True, channel subject counts as soft positive
         """
-        # Default markers
-        self.bac_markers = bac_markers or [
-            "bac",
-            "3as",
-            "بكالوريا",
-            "باك",
-            "ثالثة ثانوي",
-            "السنة الثالثة ثانوي",
-            "terminale",
-        ]
-
-        self.non_bac_markers = non_bac_markers or [
-            "1as",
-            "2as",
-            "سنة أولى ثانوي",
-            "سنة ثانية ثانوي",
-            "أولى ثانوي",
-            "ثانية ثانوي",
-            "متوسط",
-            "bem",
-            "1am",
-            "2am",
-            "3am",
-            "4am",
-            "ابتدائي",
-        ]
-
-        self.strong_bac_intent = strong_bac_intent or [
-            "مراجعة بكالوريا",
-            "تحضير بكالوريا",
-            "تصحيح بكالوريا",
-            "موضوع بكالوريا",
-            "حل موضوع بكالوريا",
-            "bac blanc",
-            "révision bac",
-            "corrigé bac",
-            "sujet bac",
-        ]
+        self.bac_markers = bac_markers
+        self.non_bac_markers = non_bac_markers
+        self.strong_bac_intent = strong_bac_intent
 
         # Data-driven components
         self.bac_heavy_channels = bac_heavy_channels or set()
@@ -325,25 +296,6 @@ class BalancedBacFilter:
             }
 
 
-def load_channel_priors(priors_path: Path) -> Set[str]:
-    """Load Bac-heavy channel IDs from channel_priors.csv."""
-    if not priors_path.exists():
-        return set()
-
-    df = pd.read_csv(priors_path)
-    bac_heavy = df[df["is_bac_heavy"]]["channel_id"].tolist()
-    return set(bac_heavy)
-
-
-def load_tfidf_terms(terms_path: Path) -> List[str]:
-    """Load TF-IDF discovered terms from JSON."""
-    if not terms_path.exists():
-        return []
-
-    with open(terms_path, "r", encoding="utf-8") as f:
-        return cast(List[str], json.load(f))
-
-
 def load_channel_subjects(channels_path: Path) -> Dict[str, str]:
     """Load channel -> subject mapping from channels.csv."""
     if not channels_path.exists():
@@ -466,3 +418,178 @@ def get_filter_statistics(df: pd.DataFrame) -> Dict[str, Any]:
             }
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Config, discovery and the one-call filter
+# ---------------------------------------------------------------------------
+
+REQUIRED_MARKERS = ("bac", "non_bac", "strong_bac_intent")
+
+
+def load_filter_config(config_path: Path) -> Dict[str, Any]:
+    """Load the filter YAML. Missing file or marker lists is an error, not a fallback."""
+    if not config_path.exists():
+        raise FileNotFoundError(f"Filter config not found: {config_path}")
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    missing = [m for m in REQUIRED_MARKERS if not config.get("markers", {}).get(m)]
+    if missing:
+        raise ValueError(f"{config_path}: markers.{', markers.'.join(missing)} must be non-empty lists")
+    return config
+
+
+def latest_snapshots(videos: pd.DataFrame) -> pd.DataFrame:
+    """Keep the most recent snapshot of each video."""
+    if "snapshot_date" in videos:
+        order = pd.to_datetime(videos["snapshot_date"], format="ISO8601", errors="coerce")
+        videos = videos.assign(_order=order).sort_values("_order", ascending=False).drop(columns="_order")
+    if "video_id" in videos:
+        videos = videos.drop_duplicates(subset="video_id", keep="first")
+    return videos.reset_index(drop=True)
+
+
+def _video_text(videos: pd.DataFrame) -> pd.Series:
+    parts = [videos[c].fillna("").astype(str) for c in ("title", "description", "tags") if c in videos]
+    return pd.concat(parts, axis=1).agg(" ".join, axis=1).str.lower()
+
+
+def _has_any(text: pd.Series, markers: List[str]) -> pd.Series:
+    return text.str.contains("|".join(re.escape(m) for m in markers), regex=True, case=False, na=False)
+
+
+def _grade_marks(videos: pd.DataFrame, markers: Dict[str, List[str]]) -> Tuple[pd.Series, pd.Series]:
+    text = _video_text(videos)
+    return _has_any(text, markers["bac"]), _has_any(text, markers["non_bac"])
+
+
+def build_channel_priors(videos: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """Per channel: the share of grade-marked videos that are Bac, and whether it is Bac-heavy."""
+    prior = config.get("channel_prior", {})
+    has_bac, has_non = _grade_marks(videos, config["markers"])
+    stats = (
+        pd.DataFrame({"channel_id": videos["channel_id"], "bac": has_bac, "non": has_non, "any": has_bac | has_non})
+        .groupby("channel_id")
+        .agg(
+            count_bac_marked=("bac", "sum"),
+            count_non_bac_marked=("non", "sum"),
+            count_any_grade_marked=("any", "sum"),
+            total_videos=("bac", "size"),
+        )
+    )
+    marked = stats["count_any_grade_marked"].replace(0, 1)
+    stats["p_bac"] = stats["count_bac_marked"] / marked
+    stats["p_non"] = stats["count_non_bac_marked"] / marked
+    stats["is_bac_heavy"] = (stats["p_bac"] >= prior.get("bac_threshold", 0.7)) & (
+        stats["p_non"] <= prior.get("non_bac_max", 0.1)
+    )
+    return stats.reset_index().sort_values("p_bac", ascending=False, ignore_index=True)
+
+
+def discover_bac_terms(videos: pd.DataFrame, config: Dict[str, Any]) -> List[str]:
+    """Title n-grams more frequent in Bac-marked than non-Bac-marked videos.
+
+    Returns [] when there are fewer than 50 Bac-only or 20 non-Bac-only titles.
+    """
+    tfidf = config.get("tfidf", {})
+    has_bac, has_non = _grade_marks(videos, config["markers"])
+    titles = videos["title"].fillna("").astype(str)
+    bac_titles, non_titles = titles[has_bac & ~has_non].tolist(), titles[has_non & ~has_bac].tolist()
+    if len(bac_titles) < 50 or len(non_titles) < 20:
+        return []
+    vectorizer = TfidfVectorizer(
+        ngram_range=tuple(tfidf.get("ngram_range", [1, 2])),
+        analyzer=tfidf.get("analyzer", "char_wb"),
+        min_df=tfidf.get("min_df", 5),
+        max_df=tfidf.get("max_df", 0.8),
+    )
+    X = vectorizer.fit_transform(bac_titles + non_titles)
+    diff = X[: len(bac_titles)].mean(axis=0).A1 - X[len(bac_titles):].mean(axis=0).A1
+    names = vectorizer.get_feature_names_out()
+    top = np.argsort(diff)[::-1][: tfidf.get("top_n_terms", 100)]
+    return [str(names[i]) for i in top if diff[i] > 0]
+
+
+@dataclass
+class BacFilterResult:
+    """Everything one filter run learns and decides."""
+
+    priors: pd.DataFrame
+    terms: List[str]
+    videos: pd.DataFrame  # input videos plus is_bac_3as, filter_category, filter_confidence, filter_reason, subject
+
+
+def run_bac_filter(
+    videos: pd.DataFrame,
+    config: Dict[str, Any],
+    channel_subjects: Dict[str, str],
+    priors: Optional[pd.DataFrame] = None,
+    terms: Optional[List[str]] = None,
+    show_progress: bool = False,
+) -> BacFilterResult:
+    """Discover priors and terms (unless given), then classify every video.
+
+    Args:
+        videos: Latest snapshot per video (see ``latest_snapshots``).
+        config: Output of ``load_filter_config``.
+        channel_subjects: channel_id -> subject, from channels.csv.
+        priors: Cached channel priors; None discovers them from ``videos``.
+        terms: Cached TF-IDF terms; None discovers them from ``videos``.
+        show_progress: Show a progress bar while classifying.
+    """
+    priors = build_channel_priors(videos, config) if priors is None else priors
+    terms = discover_bac_terms(videos, config) if terms is None else terms
+    soft = config.get("soft_positives", {})
+    markers = config["markers"]
+    bac_filter = BalancedBacFilter(
+        bac_markers=markers["bac"],
+        non_bac_markers=markers["non_bac"],
+        strong_bac_intent=markers["strong_bac_intent"],
+        bac_heavy_channels=set(priors.loc[priors["is_bac_heavy"], "channel_id"]),
+        tfidf_terms=terms,
+        channel_subjects=channel_subjects,
+        duration_min=soft.get("duration_min", 300),
+        require_tfidf=soft.get("require_tfidf", False),
+        require_duration=soft.get("require_duration", False),
+        allow_channel_subject=soft.get("allow_channel_subject", True),
+    )
+    filtered = filter_videos_dataframe(videos, bac_filter, show_progress=show_progress)
+    return BacFilterResult(priors=priors, terms=terms, videos=filtered)
+
+
+VALIDATION_SAMPLES = {
+    # filter_category: config key for its sample size, default size
+    "bac_3as": ("sample_bac_3as", 100),
+    "bac_3as_ambiguous": ("sample_bac_ambiguous", 100),
+    "non_bac": ("sample_non_bac", 50),
+    "unknown": ("sample_conflict", 50),
+}
+
+
+def validation_sample(filtered: pd.DataFrame, config: Dict[str, Any], seed: int = 42) -> pd.DataFrame:
+    """A stratified sample per filter category, with empty columns for manual labels."""
+    sizes = config.get("validation", {})
+    samples = []
+    for category, (key, default) in VALIDATION_SAMPLES.items():
+        rows = filtered[filtered["filter_category"] == category]
+        if len(rows):
+            samples.append(rows.sample(n=min(sizes.get(key, default), len(rows)), random_state=seed).assign(sample_type=category))
+    if not samples:
+        return pd.DataFrame()
+    return pd.concat(samples, ignore_index=True).assign(manual_is_bac="", notes="")
+
+
+def score_against_labels(labels: pd.DataFrame) -> Dict[str, float]:
+    """Precision, recall and accuracy of ``is_bac_3as`` against hand labels in ``manual_is_bac``.
+
+    Rows without a manual label are ignored.
+    """
+    labelled = labels[labels["manual_is_bac"].astype(str).str.lower().isin(["true", "false", "1", "0"])]
+    truth = labelled["manual_is_bac"].astype(str).str.lower().isin(["true", "1"])
+    predicted = labelled["is_bac_3as"].astype(str).str.lower().isin(["true", "1"])
+    tp = int((truth & predicted).sum())
+    return {
+        "labelled": len(labelled),
+        "precision": tp / max(int(predicted.sum()), 1),
+        "recall": tp / max(int(truth.sum()), 1),
+        "accuracy": float((truth == predicted).mean()) if len(labelled) else 0.0,
+    }

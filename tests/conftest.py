@@ -1,46 +1,70 @@
 """Pytest configuration and fixtures."""
 
+from typing import List
+
+import numpy as np
 import pandas as pd
 import pytest
 
+TOPICS = [
+    "الدالة الأسية",
+    "الأعداد المركبة",
+    "التكامل",
+    "les nombres complexes",
+    "la dérivée",
+    "المناعة",
+    "التركيب الضوئي",
+    "Newton",
+]
+
+
+class FakeEmbedder:
+    """Deterministic stand-in for AraBERT: 16-dim vectors derived from each text."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get_embeddings(self, texts: List[str], batch_size: int = 32) -> np.ndarray:
+        self.calls += 1
+        return np.array(
+            [np.random.default_rng(sum(map(ord, t))).normal(size=16) for t in texts]
+        )
+
 
 @pytest.fixture
-def sample_raw_videos() -> pd.DataFrame:
-    """Create sample raw video data for testing."""
+def fake_embedder() -> FakeEmbedder:
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def training_videos() -> pd.DataFrame:
+    """60 cleaned videos over 3 channels, half with transcripts, with statistics."""
+    rng = np.random.default_rng(0)
+    n = 60
+    channels = np.array(["UC_math", "UC_bio", "UC_phys"])[np.arange(n) % 3]
+    subjects = {"UC_math": "Maths", "UC_bio": "Natural Sciences", "UC_phys": "Physics"}
+    views = rng.integers(200, 50_000, n)
+    transcripts = [
+        f"اليوم ندرس {TOPICS[i % 8]}. لماذا؟ لأن المثال مهم. مثلا نحل التمرين {i}."
+        if i % 2 == 0
+        else None
+        for i in range(n)
+    ]
     return pd.DataFrame(
         {
-            "video_id": ["vid1", "vid2", "vid3"],
-            "title": [
-                "Math Bac 2025 - Integral Calculus",
-                "Physics: Newton Laws Exercise",
-                "Arabic Literature - Poetry Analysis",
-            ],
-            "description": [
-                "Complete tutorial on integral calculus for Bac exam",
-                "Solve physics problems about Newton laws",
-                "Analysis of classical Arabic poetry",
-            ],
-            "publish_date": pd.to_datetime(
-                [
-                    "2024-01-15 18:00:00+00:00",
-                    "2024-02-20 14:30:00+00:00",
-                    "2024-03-10 20:15:00+00:00",
-                ]
-            ),
-            "channel_id": ["ch1", "ch1", "ch2"],
-            "channel_title": ["Math Channel", "Math Channel", "Arabic Channel"],
-            "category_id": ["27", "27", "27"],
-            "duration_iso": ["PT15M30S", "PT8M45S", "PT25M00S"],
-            "duration_sec": [930, 525, 1500],
-            "view_count": [5000, 3000, 1200],
-            "like_count": [250, 180, 80],
-            "comment_count": [45, 30, 15],
-            "tags": [
-                "math,bac,integral,calculus",
-                "physics,newton,exercise",
-                "arabic,literature,poetry",
-            ],
-            "thumbnail_url": ["url1", "url2", "url3"],
+            "video_id": [f"vid_{i}" for i in range(n)],
+            "title": [f"بكالوريا 2025 {TOPICS[i % 8]} الجزء {i}" + ("؟" if i % 5 == 0 else "") for i in range(n)],
+            "description": [f"شرح {TOPICS[(i + 3) % 8]} للسنة الثالثة ثانوي" for i in range(n)],
+            "tags": ["bac,3as" if i % 4 else "" for i in range(n)],
+            "publish_date": pd.date_range("2024-01-01", periods=n, freq="3D", tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "channel_id": channels,
+            "channel_title": channels,
+            "subject": [subjects[c] for c in channels],
+            "duration_sec": rng.integers(300, 3600, n),
+            "view_count": views,
+            "like_count": (views * rng.uniform(0.01, 0.08, n)).astype(int),
+            "comment_count": (views * rng.uniform(0.0, 0.01, n)).astype(int),
+            "transcript_text": transcripts,
         }
     )
 

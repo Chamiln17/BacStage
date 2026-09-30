@@ -21,6 +21,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
@@ -55,82 +56,49 @@ def cmd_collect(args: argparse.Namespace) -> int:
         return e.code if isinstance(e.code, int) else 1
 
 
-def cmd_engineer(args: argparse.Namespace) -> int:
-    """Run feature engineering."""
+def _load_videos_with_transcripts(videos_path: Path, transcripts_path: Optional[Path]):
+    """Load videos and attach `transcript_text` by video_id when a transcripts CSV exists."""
     import logging
     import pandas as pd
-    from src.features.engineer import VideoFeatureEngineer
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+
     logger = logging.getLogger(__name__)
-    
-    input_path = args.input
-    output_path = args.output
-    
-    logger.info("=" * 60)
-    logger.info("Feature Engineering Pipeline")
-    logger.info("=" * 60)
-    
-    # Load raw data
+    if not videos_path.exists():
+        raise FileNotFoundError(f"Input file not found: {videos_path}")
+    videos = pd.read_csv(videos_path)
+    logger.info(f"Loaded {len(videos):,} videos from {videos_path}")
+    if transcripts_path is not None and transcripts_path.exists() and "transcript_text" not in videos:
+        transcripts = pd.read_csv(transcripts_path, usecols=["video_id", "transcript_text"])
+        videos = videos.merge(transcripts.drop_duplicates("video_id"), on="video_id", how="left")
+        logger.info(f"Attached {videos['transcript_text'].notna().sum():,} transcripts from {transcripts_path}")
+    elif transcripts_path is not None and not transcripts_path.exists():
+        logger.warning(f"Transcripts file not found: {transcripts_path}; transcript features will be 0")
+    return videos
+
+
+def cmd_engineer(args: argparse.Namespace) -> int:
+    """Export per-video engineered features (for notebooks and analysis)."""
+    import logging
+    from src.features.engineer import engineered_export
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logger = logging.getLogger(__name__)
     try:
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input file not found: {input_path}")
-        
-        logger.info(f"Loading raw data from {input_path}")
-        videos_df = pd.read_csv(input_path)
-        logger.info(f"Loaded {len(videos_df)} videos with {len(videos_df.columns)} columns")
-        
+        videos = _load_videos_with_transcripts(args.input, args.transcripts)
+        engineered = engineered_export(videos)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        engineered.to_csv(args.output, index=False)
     except Exception as e:
-        logger.error(f"Error loading input file: {e}")
+        logger.error(f"Feature engineering failed: {e}")
         return 1
-    
-    # Engineer features
-    try:
-        engineer = VideoFeatureEngineer()
-        videos_engineered = engineer.fit_transform(videos_df)
-        videos_final = engineer.select_features(videos_engineered, include_target=True)
-        logger.info(f"Feature engineering complete: {videos_final.shape}")
-        
-    except Exception as e:
-        logger.error(f"Error during feature engineering: {e}")
-        return 1
-    
-    # Save results
-    try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        videos_final.to_csv(output_path, index=False)
-        
-        logger.info(f"Saved engineered features to: {output_path}")
-        logger.info(f"Final dataset shape: {videos_final.shape}")
-        logger.info(f"Features: {', '.join(videos_final.columns.tolist())}")
-        
-        # Summary
-        logger.info("\nDataset Summary:")
-        logger.info(f"  Date range: {videos_final['publish_date'].min()} to {videos_final['publish_date'].max()}")
-        logger.info(f"  Channels: {videos_final['channel_id'].nunique()}")
-        logger.info(f"  Subjects: {videos_final['subject'].value_counts().to_dict()}")
-        logger.info(f"  Engagement: {videos_final['engagement_category'].value_counts().to_dict()}")
-        
-        return 0
-        
-    except Exception as e:
-        logger.error(f"Error saving output: {e}")
-        return 1
+    logger.info(f"Saved {engineered.shape[1]} columns for {len(engineered):,} videos to {args.output}")
+    logger.info(f"Engagement: {engineered['engagement_category'].value_counts().to_dict()}")
+    return 0
 
 
 def cmd_transcripts(args: argparse.Namespace) -> int:
     """Collect YouTube transcripts."""
     from src.data.transcript_collector import collect_transcripts_cli
     return collect_transcripts_cli(args.input, args.output, args.proxy, getattr(args, 'workers', 1))
-
-
-def cmd_transcript_features(args: argparse.Namespace) -> int:
-    """Extract features from transcripts."""
-    from src.features.transcript_features import extract_features_cli
-    return extract_features_cli(args.input, args.output, args.videos)
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -213,445 +181,88 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def cmd_filter_data(args: argparse.Namespace) -> int:
-    """Apply data-driven Bac 3AS filter with automatic discovery."""
+    """Apply the data-driven Bac 3AS filter; file I/O around `run_bac_filter`."""
     import json
     import logging
-    import yaml
+    from datetime import datetime
     import pandas as pd
-    
+
     from src.features.bac_filter_balanced import (
-        BalancedBacFilter,
-        filter_videos_dataframe,
         get_filter_statistics,
-        load_channel_priors,
-        load_tfidf_terms,
+        latest_snapshots,
         load_channel_subjects,
+        load_filter_config,
+        run_bac_filter,
+        score_against_labels,
+        validation_sample,
     )
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s",
+                        handlers=[logging.StreamHandler(sys.stdout)])
     logger = logging.getLogger(__name__)
-    
-    # Fix console encoding for Windows
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
-    
-    # Resolve paths
-    input_path = args.input
-    channels_path = args.channels
+
     output_dir = args.output_dir
-    config_path = args.config
-    
     priors_path = output_dir / "channel_priors.csv"
-    tfidf_path = output_dir / "tfidf_bac_terms.json"
-    
-    logger.info("=" * 60)
-    logger.info("DATA-DRIVEN BAC 3AS FILTER")
-    logger.info("=" * 60)
-    
-    # Load config
-    config = {}
-    if config_path.exists():
-        logger.info(f"Loading config from: {config_path}")
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-    else:
-        logger.warning(f"Config not found: {config_path}, using defaults")
-    
-    # Get config values with defaults
-    channel_prior_config = config.get("channel_prior", {})
-    soft_positives_config = config.get("soft_positives", {})
-    markers_config = config.get("markers", {})
-    validation_config = config.get("validation", {})
-    
-    bac_threshold = channel_prior_config.get("bac_threshold", 0.7)
-    non_bac_max = channel_prior_config.get("non_bac_max", 0.1)
-    duration_min = soft_positives_config.get("duration_min", 300)
-    require_tfidf = soft_positives_config.get("require_tfidf", False)
-    require_duration = soft_positives_config.get("require_duration", False)
-    allow_channel_subject = soft_positives_config.get("allow_channel_subject", True)
-    
-    bac_markers = markers_config.get("bac", [
-        "bac", "3as", "بكالوريا", "باك", "ثالثة ثانوي",
-        "السنة الثالثة ثانوي", "terminale"
-    ])
-    non_bac_markers = markers_config.get("non_bac", [
-        "1as", "2as", "سنة أولى ثانوي", "سنة ثانية ثانوي",
-        "أولى ثانوي", "ثانية ثانوي", "متوسط", "bem",
-        "1am", "2am", "3am", "4am", "ابتدائي"
-    ])
-    strong_bac_intent = markers_config.get("strong_bac_intent", [
-        "مراجعة بكالوريا", "تحضير بكالوريا", "تصحيح بكالوريا",
-        "موضوع بكالوريا", "حل موضوع بكالوريا",
-        "bac blanc", "révision bac", "corrigé bac", "sujet bac"
-    ])
-    
-    # =========================================================================
-    # PHASE 1: Data Discovery
-    # =========================================================================
-    
-    need_discovery = args.force_discovery or (
-        not args.skip_discovery and (
-            not priors_path.exists() or not tfidf_path.exists()
-        )
-    )
-    
-    if need_discovery:
-        logger.info("\n" + "=" * 60)
-        logger.info("PHASE 1: DATA DISCOVERY")
-        logger.info("=" * 60)
-        
-        # Validate input
-        if not input_path.exists():
-            logger.error(f"Input file not found: {input_path}")
-            return 1
-        
-        # Load and dedupe data for discovery
-        logger.info(f"\nLoading video metadata from {input_path}...")
-        df_raw = pd.read_csv(input_path)
-        logger.info(f"Loaded {len(df_raw):,} records")
-        
-        if "snapshot_date" in df_raw.columns:
-            df_raw["snapshot_date"] = pd.to_datetime(
-                df_raw["snapshot_date"], format="ISO8601", errors="coerce"
-            )
-            df_raw = df_raw.sort_values("snapshot_date", ascending=False)
-        
-        if "video_id" in df_raw.columns:
-            original = len(df_raw)
-            df_raw = df_raw.drop_duplicates(subset=["video_id"], keep="first")
-            logger.info(f"Deduplicated: {original:,} → {len(df_raw):,} unique videos")
-        
-        # Create output directory
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # --- Build channel priors ---
-        logger.info("\n>>> Building channel priors...")
-        
-        import re
-        
-        def has_markers(text_series: pd.Series, markers: list) -> pd.Series:
-            pattern = "|".join([re.escape(m) for m in markers])
-            return text_series.str.contains(pattern, regex=True, case=False, na=False)
-        
-        text = (
-            df_raw["title"].fillna("").astype(str) + " "
-            + df_raw["description"].fillna("").astype(str) + " "
-            + df_raw["tags"].fillna("").astype(str)
-        ).str.lower()
-        
-        df_raw["has_bac"] = has_markers(text, bac_markers)
-        df_raw["has_non_bac"] = has_markers(text, non_bac_markers)
-        df_raw["has_any_grade"] = df_raw["has_bac"] | df_raw["has_non_bac"]
-        
-        channel_stats = df_raw.groupby("channel_id").agg({
-            "has_bac": "sum",
-            "has_non_bac": "sum",
-            "has_any_grade": "sum",
-            "video_id": "count",
-        }).rename(columns={
-            "has_bac": "count_bac_marked",
-            "has_non_bac": "count_non_bac_marked",
-            "has_any_grade": "count_any_grade_marked",
-            "video_id": "total_videos",
-        })
-        
-        channel_stats["p_bac"] = (
-            channel_stats["count_bac_marked"] / 
-            channel_stats["count_any_grade_marked"].replace(0, 1)
-        )
-        channel_stats["p_non"] = (
-            channel_stats["count_non_bac_marked"] / 
-            channel_stats["count_any_grade_marked"].replace(0, 1)
-        )
-        channel_stats["is_bac_heavy"] = (
-            (channel_stats["p_bac"] >= bac_threshold) & 
-            (channel_stats["p_non"] <= non_bac_max)
-        )
-        
-        channel_stats = channel_stats.reset_index().sort_values("p_bac", ascending=False)
-        channel_stats.to_csv(priors_path, index=False)
-        
-        bac_heavy_count = channel_stats["is_bac_heavy"].sum()
-        logger.info(f"Channel priors saved: {priors_path}")
-        logger.info(f"Bac-heavy channels: {bac_heavy_count}/{len(channel_stats)}")
-        
-        # --- TF-IDF discovery ---
-        logger.info("\n>>> Running TF-IDF keyword discovery...")
-        
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        import numpy as np
-        
-        # Create pseudo-labels
-        bac_mask = df_raw["has_bac"] & ~df_raw["has_non_bac"]
-        non_bac_mask = df_raw["has_non_bac"] & ~df_raw["has_bac"]
-        
-        bac_titles = df_raw.loc[bac_mask, "title"].fillna("").astype(str).tolist()
-        non_bac_titles = df_raw.loc[non_bac_mask, "title"].fillna("").astype(str).tolist()
-        
-        logger.info(f"Pseudo-labeled: {len(bac_titles):,} Bac, {len(non_bac_titles):,} non-Bac")
-        
-        if len(bac_titles) >= 50 and len(non_bac_titles) >= 20:
-            tfidf_config = config.get("tfidf", {})
-            top_n = tfidf_config.get("top_n_terms", 100)
-            min_df = tfidf_config.get("min_df", 5)
-            max_df = tfidf_config.get("max_df", 0.8)
-            ngram_range = tuple(tfidf_config.get("ngram_range", [1, 2]))
-            analyzer = tfidf_config.get("analyzer", "char_wb")
-            
-            all_titles = bac_titles + non_bac_titles
-            
-            vectorizer = TfidfVectorizer(
-                ngram_range=ngram_range,
-                analyzer=analyzer,
-                min_df=min_df,
-                max_df=max_df,
-            )
-            
-            try:
-                X = vectorizer.fit_transform(all_titles)
-                feature_names = vectorizer.get_feature_names_out()
-                
-                n_bac = len(bac_titles)
-                bac_tfidf = X[:n_bac].mean(axis=0).A1
-                non_bac_tfidf = X[n_bac:].mean(axis=0).A1
-                diff = bac_tfidf - non_bac_tfidf
-                
-                top_idx = np.argsort(diff)[::-1][:top_n]
-                top_terms = [feature_names[i] for i in top_idx if diff[i] > 0]
-                
-                with open(tfidf_path, "w", encoding="utf-8") as f:
-                    json.dump(top_terms, f, ensure_ascii=False, indent=2)
-                
-                logger.info(f"TF-IDF terms saved: {tfidf_path} ({len(top_terms)} terms)")
-                
-            except Exception as e:
-                logger.warning(f"TF-IDF discovery failed: {e}")
-                top_terms = []
-                with open(tfidf_path, "w", encoding="utf-8") as f:
-                    json.dump(top_terms, f)
-        else:
-            logger.warning("Not enough pseudo-labeled data for TF-IDF, skipping")
-            with open(tfidf_path, "w", encoding="utf-8") as f:
-                json.dump([], f)
-    else:
-        logger.info("\nSkipping discovery (artifacts exist or --skip-discovery)")
-    
-    # =========================================================================
-    # PHASE 2: Apply Balanced Filter
-    # =========================================================================
-    
-    logger.info("\n" + "=" * 60)
-    logger.info("PHASE 2: APPLY BALANCED FILTER")
-    logger.info("=" * 60)
-    
-    # Validate inputs
-    if not input_path.exists():
-        logger.error(f"Input file not found: {input_path}")
+    terms_path = output_dir / "tfidf_bac_terms.json"
+    try:
+        config = load_filter_config(args.config)
+        if not args.input.exists():
+            raise FileNotFoundError(f"Input file not found: {args.input}")
+        videos = pd.read_csv(args.input)
+        if args.dedupe:
+            videos = latest_snapshots(videos)
+        logger.info(f"Loaded {len(videos):,} videos from {args.input}")
+
+        cached = not args.force_discovery and priors_path.exists() and terms_path.exists()
+        if args.skip_discovery and not cached:
+            logger.warning("--skip-discovery given but cached artifacts are missing; discovering")
+        use_cache = cached
+        priors = pd.read_csv(priors_path) if use_cache else None
+        terms = json.loads(terms_path.read_text(encoding="utf-8")) if use_cache else None
+        logger.info("Using cached channel priors and terms" if use_cache else "Discovering channel priors and terms")
+
+        result = run_bac_filter(videos, config, load_channel_subjects(args.channels),
+                                priors=priors, terms=terms, show_progress=not args.no_progress)
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
         return 1
-    
-    # Load data-driven components
-    logger.info("\nLoading data-driven components...")
-    
-    bac_heavy_channels = load_channel_priors(priors_path)
-    logger.info(f"  Channel priors: {len(bac_heavy_channels)} Bac-heavy channels")
-    
-    tfidf_terms = load_tfidf_terms(tfidf_path)
-    logger.info(f"  TF-IDF terms: {len(tfidf_terms)} terms")
-    
-    channel_subjects = load_channel_subjects(channels_path)
-    logger.info(f"  Channel subjects: {len(channel_subjects)} channels")
-    
-    # Load video data
-    logger.info(f"\nLoading video metadata from {input_path}...")
-    df = pd.read_csv(input_path)
-    logger.info(f"Loaded {len(df):,} records")
-    
-    # Deduplicate if requested
-    if args.dedupe:
-        if "snapshot_date" in df.columns:
-            df["snapshot_date"] = pd.to_datetime(
-                df["snapshot_date"], format="ISO8601", errors="coerce"
-            )
-            df = df.sort_values("snapshot_date", ascending=False)
-        
-        if "video_id" in df.columns:
-            original = len(df)
-            df = df.drop_duplicates(subset=["video_id"], keep="first")
-            logger.info(f"Deduplicated: {original:,} → {len(df):,} unique videos")
-    
-    # Create filter
-    bac_filter = BalancedBacFilter(
-        bac_markers=bac_markers,
-        non_bac_markers=non_bac_markers,
-        strong_bac_intent=strong_bac_intent,
-        bac_heavy_channels=bac_heavy_channels,
-        tfidf_terms=tfidf_terms,
-        channel_subjects=channel_subjects,
-        duration_min=duration_min,
-        require_tfidf=require_tfidf,
-        require_duration=require_duration,
-        allow_channel_subject=allow_channel_subject,
-    )
-    
-    # Apply filter
-    logger.info("\nApplying balanced Bac filter...")
-    df_filtered = filter_videos_dataframe(
-        df,
-        bac_filter,
-        show_progress=not args.no_progress,
-    )
-    
-    # Get statistics
-    stats = get_filter_statistics(df_filtered)
-    
-    # Display results
-    logger.info("\n" + "=" * 60)
-    logger.info("FILTERING RESULTS")
-    logger.info("=" * 60)
-    
-    logger.info(
-        f"\nBac 3AS videos: {stats['bac_3as_count']:,} / {stats['total_videos']:,} "
-        f"({stats['bac_percentage']:.1f}%)"
-    )
-    
-    if "category_distribution" in stats:
-        logger.info("\nBy Category:")
-        for cat, count in sorted(stats["category_distribution"].items(), key=lambda x: -x[1]):
-            logger.info(f"  {cat:25s} {count:,}")
-    
-    if "subject_distribution" in stats:
-        logger.info("\nBy Subject (Bac videos):")
-        for subject, count in sorted(stats["subject_distribution"].items(), key=lambda x: -x[1]):
-            logger.info(f"  {subject:25s} {count:,}")
-    
-    if "confidence_stats" in stats:
-        conf = stats["confidence_stats"]
-        logger.info("\nConfidence Distribution (Bac videos):")
-        logger.info(f"  Mean:  {conf['mean']:.3f}")
-        logger.info(f"  Std:   {conf['std']:.3f}")
-    
-    # Save outputs
-    logger.info("\n" + "=" * 60)
-    logger.info("SAVING OUTPUTS")
-    logger.info("=" * 60)
-    
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Full dataset
-    balanced_path = output_dir / "videos_bac_balanced.csv"
-    df_filtered.to_csv(balanced_path, index=False)
-    logger.info(f"\nFull dataset: {balanced_path}")
-    logger.info(f"  {len(df_filtered):,} records, {len(df_filtered.columns)} columns")
-    
-    # Bac-only subset
-    df_bac_only = df_filtered[df_filtered["is_bac_3as"]].copy()
-    bac_only_path = output_dir / "videos_bac_only.csv"
-    df_bac_only.to_csv(bac_only_path, index=False)
-    logger.info(f"\nBac-only dataset: {bac_only_path}")
-    logger.info(f"  {len(df_bac_only):,} videos")
-    
-    # Rejected subset
-    df_rejected = df_filtered[~df_filtered["is_bac_3as"]].copy()
-    rejected_path = output_dir / "videos_rejected.csv"
-    df_rejected.to_csv(rejected_path, index=False)
-    logger.info(f"\nRejected dataset: {rejected_path}")
-    logger.info(f"  {len(df_rejected):,} videos")
-    
-    # =========================================================================
-    # PHASE 3: Validation Sampling (Optional)
-    # =========================================================================
-    
+    if not use_cache:
+        result.priors.to_csv(priors_path, index=False)
+        terms_path.write_text(json.dumps(result.terms, ensure_ascii=False, indent=2), encoding="utf-8")
+    filtered = result.videos
+    filtered.to_csv(output_dir / "videos_bac_balanced.csv", index=False)
+    filtered[filtered["is_bac_3as"]].to_csv(output_dir / "videos_bac_only.csv", index=False)
+    filtered[~filtered["is_bac_3as"]].to_csv(output_dir / "videos_rejected.csv", index=False)
+
+    stats = get_filter_statistics(filtered)
+    logger.info(f"Bac-heavy channels: {int(result.priors['is_bac_heavy'].sum())}/{len(result.priors)}, "
+                f"TF-IDF terms: {len(result.terms)}")
+    logger.info(f"Bac 3AS videos: {stats['bac_3as_count']:,} / {stats['total_videos']:,} "
+                f"({stats['bac_percentage']:.1f}%)")
+    logger.info(f"By category: {stats.get('category_distribution', {})}")
+    logger.info(f"Outputs written to {output_dir}")
+
+    validation_dir = Path("data/validation")
+    labels_path = validation_dir / "sample_for_manual_review.csv"
+    if labels_path.exists():
+        labels = pd.read_csv(labels_path, usecols=["video_id", "manual_is_bac"])
+        scored = labels.merge(filtered[["video_id", "is_bac_3as"]], on="video_id")
+        score = score_against_labels(scored)
+        logger.info(f"Against {score['labelled']} hand labels: precision={score['precision']:.3f} "
+                    f"recall={score['recall']:.3f} accuracy={score['accuracy']:.3f}")
+
     if args.validate:
-        logger.info("\n" + "=" * 60)
-        logger.info("PHASE 3: VALIDATION SAMPLING")
-        logger.info("=" * 60)
-        
-        validation_dir = Path("data/validation")
+        sample = validation_sample(filtered, config)
         validation_dir.mkdir(parents=True, exist_ok=True)
-        
-        samples = []
-        
-        # Sample from bac_3as (explicit markers)
-        bac_3as_mask = df_filtered["filter_category"] == "bac_3as"
-        n_bac_3as = validation_config.get("sample_bac_3as", 100)
-        if bac_3as_mask.sum() > 0:
-            sample_bac = df_filtered[bac_3as_mask].sample(
-                n=min(n_bac_3as, bac_3as_mask.sum()), random_state=42
-            )
-            sample_bac["sample_type"] = "bac_3as"
-            samples.append(sample_bac)
-            logger.info(f"Sampled {len(sample_bac)} from bac_3as")
-        
-        # Sample from bac_3as_ambiguous (soft positives)
-        ambiguous_mask = df_filtered["filter_category"] == "bac_3as_ambiguous"
-        n_ambiguous = validation_config.get("sample_bac_ambiguous", 100)
-        if ambiguous_mask.sum() > 0:
-            sample_amb = df_filtered[ambiguous_mask].sample(
-                n=min(n_ambiguous, ambiguous_mask.sum()), random_state=42
-            )
-            sample_amb["sample_type"] = "bac_3as_ambiguous"
-            samples.append(sample_amb)
-            logger.info(f"Sampled {len(sample_amb)} from bac_3as_ambiguous")
-        
-        # Sample from non_bac (false negative check)
-        non_bac_mask = df_filtered["filter_category"] == "non_bac"
-        n_non_bac = validation_config.get("sample_non_bac", 50)
-        if non_bac_mask.sum() > 0:
-            sample_non = df_filtered[non_bac_mask].sample(
-                n=min(n_non_bac, non_bac_mask.sum()), random_state=42
-            )
-            sample_non["sample_type"] = "non_bac"
-            samples.append(sample_non)
-            logger.info(f"Sampled {len(sample_non)} from non_bac")
-        
-        # Sample from unknown
-        unknown_mask = df_filtered["filter_category"] == "unknown"
-        n_conflict = validation_config.get("sample_conflict", 50)
-        if unknown_mask.sum() > 0:
-            sample_unk = df_filtered[unknown_mask].sample(
-                n=min(n_conflict, unknown_mask.sum()), random_state=42
-            )
-            sample_unk["sample_type"] = "unknown"
-            samples.append(sample_unk)
-            logger.info(f"Sampled {len(sample_unk)} from unknown")
-        
-        # Combine samples
-        if samples:
-            combined_sample = pd.concat(samples, ignore_index=True)
-            combined_sample["manual_is_bac"] = ""
-            combined_sample["notes"] = ""
-            
-            sample_path = validation_dir / "sample_for_manual_review.csv"
-            
-            # Try to save, with fallback if file is locked
-            try:
-                combined_sample.to_csv(sample_path, index=False)
-                logger.info(f"\nValidation sample saved: {sample_path}")
-                logger.info(f"Total samples: {len(combined_sample)}")
-            except PermissionError:
-                # File is locked (likely open in Excel/Jupyter)
-                # Save with timestamp instead
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = validation_dir / f"sample_for_manual_review_{timestamp}.csv"
-                combined_sample.to_csv(backup_path, index=False)
-                logger.warning(f"\n⚠️  Original file is locked (open in another program)")
-                logger.warning(f"Saved validation sample to: {backup_path}")
-                logger.info(f"Total samples: {len(combined_sample)}")
-                logger.info(f"\nTo use the new sample:")
-                logger.info(f"  1. Close {sample_path.name} in Excel/Jupyter")
-                logger.info(f"  2. Rename {backup_path.name} to {sample_path.name}")
-                logger.info(f"  OR use the timestamped file directly")
-    
-    logger.info("\n" + "=" * 60)
-    logger.info("FILTER COMPLETE")
-    logger.info("=" * 60)
-    logger.info(f"Ready for ML modeling with {len(df_bac_only):,} Bac 3AS videos")
-    
+        # Never overwrite a file that may hold hand labels.
+        target = labels_path if not labels_path.exists() else (
+            validation_dir / f"sample_for_manual_review_{datetime.now():%Y%m%d_%H%M%S}.csv")
+        sample.to_csv(target, index=False)
+        logger.info(f"Validation sample of {len(sample)} videos written to {target}")
     return 0
 
 
@@ -736,6 +347,7 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
     engineer_args = argparse.Namespace(
         input=input_for_engineer,
         output=Path("data/processed/videos_engineered.csv"),
+        transcripts=Path("data/cleaned/transcripts_clean.csv"),
     )
     
     result = cmd_engineer(engineer_args)
@@ -762,73 +374,73 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    """Train engagement prediction model."""
-    from src.models.train_model import ModelTrainer, load_data
+    """Train the engagement model and save models/model.joblib."""
     import logging
+    import pandas as pd
+    from src.models.train_model import train
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
-    
     try:
-        df = load_data(args.input)
-        trainer = ModelTrainer(args.output_dir, random_seed=args.random_seed)
-        trainer.train(df, model_type=args.model_type, use_arabert=not args.no_arabert)
-        return 0
+        videos = _load_videos_with_transcripts(args.input, args.transcripts)
+        test_ids = None
+        if args.split_file is not None:
+            splits = pd.read_csv(args.split_file)
+            test_ids = splits.loc[splits["split"] == "test", "video_id"]
+        embedder, embedding_model = None, None
+        if not args.no_arabert:
+            from src.features.text_embeddings import TextEmbeddingExtractor
+            embedding_model = "aubmindlab/bert-base-arabertv2"
+            embedder = TextEmbeddingExtractor(embedding_model)
+        metadata = train(
+            videos,
+            args.output_dir,
+            model_type=args.model_type,
+            embedder=embedder,
+            embedding_model=embedding_model,
+            test_ids=test_ids,
+            random_seed=args.random_seed,
+        )
     except Exception as e:
         logger.error(f"Training failed: {e}")
         return 1
+    m = metadata["test_metrics"]
+    logger.info(f"Test R2={m['r2']:.4f}  MAE={m['mae']:.4f}  RMSE={m['rmse']:.4f}  ({metadata['split']})")
+    return 0
 
 
 def cmd_predict(args: argparse.Namespace) -> int:
-    """Predict engagement for videos."""
-    from src.models.predict_model import EngagementPredictor
-    import pandas as pd
+    """Score planned videos from a JSON object, a JSON list, or a CSV."""
     import json
     import logging
+    import pandas as pd
+    from src.models.predict_model import EngagementPredictor
+
     logger = logging.getLogger(__name__)
-    
-    input_path = args.input
-    output_path = args.output
-    
     try:
         predictor = EngagementPredictor(model_dir=args.model_dir)
-        
-        # Determine input type
-        if str(input_path).endswith('.json'):
-            with open(input_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    # Single
-                    result = predictor.predict(data)
-                    output_data = result
-                elif isinstance(data, list):
-                    # Batch
-                    df = pd.DataFrame(data)
-                    df_res = predictor.predict_batch(df)
-                    output_data = df_res.to_dict(orient='records')
-        else:
-            # Assume CSV
-            df = pd.read_csv(input_path)
-            df_res = predictor.predict_batch(df)
-            output_data = df_res.to_dict(orient='records')
-            
-        # Output
-        if str(output_path) == "stdout":
-            print(json.dumps(output_data, indent=2, ensure_ascii=False))
-        else:
-            # If CSV input and CSV output requested
-            if str(args.format) == 'csv' or str(output_path).endswith('.csv'):
-                if isinstance(output_data, list):
-                    pd.DataFrame(output_data).to_csv(output_path, index=False)
-                else:
-                    pd.DataFrame([output_data]).to_csv(output_path, index=False)
+        if str(args.input).endswith(".json"):
+            data = json.loads(Path(args.input).read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                output = predictor.predict(data)
             else:
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    json.dump(output_data, f, indent=2, ensure_ascii=False)
-            logger.info(f"Predictions saved to {output_path}")
-            
-        return 0
+                output = predictor.predict_batch(pd.DataFrame(data)).to_dict(orient="records")
+        else:
+            output = predictor.predict_batch(pd.read_csv(args.input)).to_dict(orient="records")
+
+        if args.output == "stdout":
+            print(json.dumps(output, indent=2, ensure_ascii=False, default=str))
+        elif args.format == "csv" or args.output.endswith(".csv"):
+            rows = output if isinstance(output, list) else [output]
+            pd.DataFrame(rows).to_csv(args.output, index=False)
+        else:
+            Path(args.output).write_text(
+                json.dumps(output, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+            )
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
         return 1
+    return 0
 
 
 def main() -> int:
@@ -924,6 +536,10 @@ Examples:
         "--output", type=Path, default=Path("data/processed/videos_engineered.csv"),
         help="Output engineered features CSV"
     )
+    engineer_parser.add_argument(
+        "--transcripts", type=Path, default=Path("data/cleaned/transcripts_clean.csv"),
+        help="Transcripts CSV joined by video_id (default: data/cleaned/transcripts_clean.csv)"
+    )
     engineer_parser.set_defaults(func=cmd_engineer)
     
     # ===== TRANSCRIPTS =====
@@ -943,24 +559,6 @@ Examples:
         help="Optional proxy URL (e.g. http://user:pass@host:port)"
     )
     transcripts_parser.set_defaults(func=cmd_transcripts)
-    
-    # ===== TRANSCRIPT-FEATURES =====
-    tf_parser = subparsers.add_parser(
-        "transcript-features", help="Extract features from transcripts"
-    )
-    tf_parser.add_argument(
-        "--input", type=Path, required=True,
-        help="Input CSV with transcripts"
-    )
-    tf_parser.add_argument(
-        "--output", type=Path, required=True,
-        help="Output CSV for transcript features"
-    )
-    tf_parser.add_argument(
-        "--videos", type=Path, default=None,
-        help="Optional videos CSV for duration/subject data"
-    )
-    tf_parser.set_defaults(func=cmd_transcript_features)
     
     # ===== ANALYZE =====
     analyze_parser = subparsers.add_parser(
@@ -1071,8 +669,12 @@ Examples:
         "train", help="Train engagement prediction model"
     )
     train_parser.add_argument(
-        "--input", type=Path, default=Path("data/processed/videos_engineered.csv"),
-        help="Input data path (default: data/processed/videos_engineered.csv)"
+        "--input", type=Path, default=Path("data/cleaned/videos_cleaned.csv"),
+        help="Cleaned videos CSV (default: data/cleaned/videos_cleaned.csv)"
+    )
+    train_parser.add_argument(
+        "--transcripts", type=Path, default=Path("data/cleaned/transcripts_clean.csv"),
+        help="Transcripts CSV joined by video_id (default: data/cleaned/transcripts_clean.csv)"
     )
     train_parser.add_argument(
         "--output-dir", type=Path, default=Path("models"),
@@ -1084,8 +686,8 @@ Examples:
         help="Model type (default: catboost)"
     )
     train_parser.add_argument(
-        "--cv-folds", type=int, default=0,
-        help="Number of CV folds (default: 0 = no CV)"
+        "--split-file", type=Path, default=None,
+        help="CSV with video_id,split; rows with split=test are held out (default: random 20%%)"
     )
     train_parser.add_argument(
         "--no-arabert", action="store_true",
@@ -1096,7 +698,7 @@ Examples:
         help="Random seed (default: 42)"
     )
     train_parser.set_defaults(func=cmd_train)
-    
+
     # ===== PREDICT =====
     predict_parser = subparsers.add_parser(
         "predict", help="Predict engagement for videos"

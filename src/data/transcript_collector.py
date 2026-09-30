@@ -21,6 +21,8 @@ from stem.control import Controller
 
 import yt_dlp
 
+from src.features.transcript_features import is_valid_transcript
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -236,10 +238,9 @@ def get_best_transcript(video_id: str, proxies: Optional[dict] = None) -> Option
 
                     text = clean_vtt_text(resp.text)
                     
-                    # Secondary validation of result text
-                    if len(text) > 50 and ('window.' in text or 'ytcfg' in text):
-                         logger.warning(f"Cleaned text still looks like code for {video_id}")
-                         raise ValueError("Transcript validation failed (JS code detected)")
+                    if not is_valid_transcript(text):
+                        logger.warning(f"Cleaned text is not a valid transcript for {video_id}")
+                        raise ValueError("Transcript validation failed (empty or page code)")
 
                     return {
                         'video_id': video_id,

@@ -1,175 +1,370 @@
 """
-Feature engineering module for video engagement analysis.
+Feature engineering: turns videos into the engagement model's features.
 
-This module transforms raw video metadata into engineered features suitable for
-machine learning models.
+``VideoFeatureEngineer`` is fit once on training videos, then transforms any
+videos into the model's feature matrix, including planned videos that have no
+statistics yet. Everything learned from data (the channel table, subject
+categories, selected columns, scaler, TF-IDF vocabulary, embedding PCA) is
+learned in ``fit`` and reused by ``transform``, so training and prediction
+build features the same way. ``transform`` never reads view, like, or comment
+counts, and nothing in this module reads from disk.
 """
 
 import logging
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Protocol, Sequence
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+from sklearn.decomposition import PCA
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+from src.features.bac_keywords import (
+    count_bac_markers,
+    count_pedagogical_markers,
+    get_exam_keyword_intensity,
+)
+from src.features.transcript_features import (
+    extract_transcript_features,
+    is_valid_transcript,
+)
 
 logger = logging.getLogger(__name__)
 
-# Import domain-specific keywords
-try:
-    from src.features.bac_keywords import (
-        count_bac_markers,
-        count_pedagogical_markers,
-        get_exam_keyword_intensity,
+TRANSCRIPT_FEATURES = [
+    "transcript_word_count",
+    "transcript_char_count",
+    "transcript_sentence_count",
+    "avg_words_per_sentence",
+    "lexical_diversity",
+    "unique_word_count",
+    "flesch_reading_ease",
+    "flesch_kincaid_grade",
+    "gunning_fog_index",
+    "automated_readability_index",
+    "speech_rate_wpm",
+    "speech_rate_optimal",
+    "speech_rate_above_optimal",
+    "speech_rate_below_optimal",
+    "question_count",
+    "question_density",
+    "example_count",
+    "example_density",
+    "explanation_count",
+    "explanation_density",
+    "contrast_count",
+    "contrast_density",
+    "technical_term_count",
+    "technical_term_density",
+    "subject_keyword_count",
+    "subject_keyword_density",
+    "domain_keyword_count",
+    "domain_keyword_density",
+    "bac_marker_count",
+    "bac_marker_density",
+    "pedagogical_marker_count",
+    "pedagogical_marker_density",
+]
+
+CHANNEL_FEATURES = ["channel_video_count", "channel_avg_views", "channel_age_days"]
+
+# Numeric features the model may use, before VIF selection. Subject one-hot
+# columns are added from the categories seen in fit. Recency features
+# (days_since_publish and its variants) are deliberately absent: a planned
+# video has no age, so they would be out of distribution at prediction time.
+NUMERIC_CANDIDATES = [
+    "is_weekday",
+    "duration_sec",
+    "title_length",
+    "description_length",
+    "title_word_count",
+    "tag_count",
+    "is_exam_focused",
+    "is_title_question",
+    "exam_keyword_intensity",
+    "title_bac_markers",
+    "desc_pedagogical_markers",
+    "has_transcript",
+    *CHANNEL_FEATURES,
+    *TRANSCRIPT_FEATURES,
+]
+
+# Columns of the engineered CSV export (`run_pipeline.py engineer`).
+EXPORT_COLUMNS = [
+    "video_id",
+    "title",
+    "channel_id",
+    "channel_title",
+    "description",
+    "publish_date",
+    "subject",
+    "view_count",
+    "like_count",
+    "comment_count",
+    "like_ratio",
+    "comment_ratio",
+    "engagement_score",
+    "engagement_category",
+    *NUMERIC_CANDIDATES,
+]
+
+UNKNOWN_SUBJECT = "Unknown"
+
+
+class TextEmbedder(Protocol):
+    """Anything that turns texts into fixed-size vectors (AraBERT in production)."""
+
+    def get_embeddings(self, texts: List[str], batch_size: int = 32) -> np.ndarray: ...
+
+
+def engagement_score(videos: pd.DataFrame) -> pd.Series:
+    """The model's target: log1p((3 * comments + likes) / sqrt(views)).
+
+    Comments weigh 3x likes because they signal active learning. Views of 0
+    are treated as 1.
+    """
+    views = videos["view_count"].fillna(0).clip(lower=1)
+    interactions = 3 * videos["comment_count"].fillna(0) + videos["like_count"].fillna(0)
+    return np.log1p(interactions / np.sqrt(views)).rename("engagement_score")
+
+
+def engagement_category(scores: pd.Series, thresholds: Sequence[float]) -> pd.Series:
+    """Label scores Low / Medium / High using thresholds learned from training scores."""
+    low, high = thresholds
+    return pd.Series(
+        np.select([scores >= high, scores >= low], ["High", "Medium"], "Low"),
+        index=scores.index,
     )
-    HAS_BAC_KEYWORDS = True
-except ImportError:
-    HAS_BAC_KEYWORDS = False
+
+
+def select_features_vif(
+    X: pd.DataFrame, vif_threshold: float = 10.0, correlation_threshold: float = 0.95
+) -> List[str]:
+    """Drop near-duplicate columns, then iteratively drop the highest-VIF column.
+
+    Args:
+        X: Numeric feature frame.
+        vif_threshold: Keep dropping while the max VIF is above this.
+        correlation_threshold: Drop a column correlated above this with an earlier one.
+
+    Returns:
+        Names of the columns kept, in their original order.
+    """
+    X = X.fillna(0)
+    X = X.loc[:, X.std() > 0]  # constant columns have undefined VIF
+    upper = X.corr().abs().where(np.triu(np.ones((X.shape[1], X.shape[1])), k=1).astype(bool))
+    X = X.drop(columns=[c for c in upper.columns if (upper[c] > correlation_threshold).any()])
+
+    while X.shape[1] >= 2:
+        with np.errstate(divide="ignore"):  # perfectly collinear columns get VIF = inf and drop first
+            vifs = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+        worst = int(np.nanargmax(vifs))
+        if vifs[worst] <= vif_threshold:
+            break
+        X = X.drop(columns=X.columns[worst])
+    return X.columns.tolist()
+
+
+# ponytail: process-wide memo; training transforms the same transcripts ~5 times.
+# Unbounded, so memory grows with distinct transcripts seen (~10k here). Bound it
+# with maxsize if this ever runs as a long-lived service over new videos.
+_transcript_features = lru_cache(maxsize=None)(extract_transcript_features)
+
+
+def _as_utc(value: Any) -> pd.Series:
+    return pd.to_datetime(value, format="ISO8601", utc=True)
 
 
 class VideoFeatureEngineer:
-    """
-    Feature engineering for YouTube video engagement analysis.
+    """Fit on training videos; transform any videos into model features.
 
-    Transforms raw video metadata into features that capture:
-    - Temporal patterns (upload timing, age)
-    - Content characteristics (duration, text features)
-    - Engagement metrics (ratios, scores)
-    - Channel-level features
+    Input columns:
+        Required: ``title``, ``duration_sec``, and ``channel_id`` or ``subject``.
+        Optional: ``description``, ``tags``, ``publish_date`` (defaults to now),
+        ``transcript_text``, ``video_id``, ``channel_title``.
+        ``fit`` also needs ``channel_id``, ``publish_date`` and ``view_count``
+        to learn the channel table.
     """
 
-    def __init__(self, collection_date: Optional[datetime] = None, channels_path: Optional[str] = None, transcripts_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        embedder: Optional[TextEmbedder] = None,
+        reference_date: Optional[datetime] = None,
+        max_embedding_dims: int = 100,
+        random_seed: int = 42,
+    ) -> None:
         """
-        Initialize feature engineer.
-
         Args:
-            collection_date: Reference date for calculating recency features.
-                           Defaults to current datetime if not provided.
-            channels_path: Path to channels.csv with subject labels.
-                          Defaults to data/raw/channels.csv if not provided.
-            transcripts_path: Path to cleaned transcripts CSV with transcript features.
-                            Defaults to data/cleaned/transcripts_clean.csv if not provided.
+            embedder: Text embedder for title + description. None skips embeddings.
+            reference_date: "Now" for age features (channel age, days since publish).
+                Defaults to the current UTC time.
+            max_embedding_dims: PCA size for the embeddings.
+            random_seed: Seed for PCA.
         """
-        if collection_date is None:
-            # Make timezone-aware to match API data
-            from datetime import timezone
+        self.embedder = embedder
+        now = reference_date or datetime.now(timezone.utc)
+        self.reference_date = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        self.max_embedding_dims = max_embedding_dims
+        self.random_seed = random_seed
+        self.channel_table: Optional[pd.DataFrame] = None
+        self.channel_defaults: Dict[str, float] = {}
+        self.subjects: List[str] = []
+        self.feature_columns: List[str] = []
+        self.scaler: Optional[StandardScaler] = None
+        self.tfidf: Optional[TfidfVectorizer] = None
+        self.pca: Optional[PCA] = None
 
-            collection_date = datetime.now(timezone.utc)
-        elif collection_date.tzinfo is None:
-            # Make timezone-aware if naive datetime provided
-            from datetime import timezone
+    def __getstate__(self) -> Dict[str, Any]:
+        # The embedder (a ~500 MB model) is supplied again at load time, never pickled.
+        state = self.__dict__.copy()
+        state["embedder"] = None
+        return state
 
-            collection_date = collection_date.replace(tzinfo=timezone.utc)
+    @property
+    def uses_embeddings(self) -> bool:
+        """True if fit learned an embedding PCA, so transform needs an embedder."""
+        return self.pca is not None
 
-        self.collection_date = collection_date
-        
-        # Load channel subjects
-        if channels_path is None:
-            from pathlib import Path
-            channels_path = Path("data/raw/channels.csv")
-        
-        try:
-            self.channels_df = pd.read_csv(channels_path)
-            logger.info(f"Loaded {len(self.channels_df)} channels with subjects")
-        except FileNotFoundError:
-            logger.warning(f"channels.csv not found at {channels_path}, subject column will be missing")
-            self.channels_df = None
-        
-        # Load transcripts
-        if transcripts_path is None:
-            from pathlib import Path
-            transcripts_path = Path("data/cleaned/transcripts_clean.csv")
-        
-        self.transcripts_df = None
-        try:
-            if Path(transcripts_path).exists():
-                self.transcripts_df = pd.read_csv(transcripts_path)
-                logger.info(f"Loaded {len(self.transcripts_df)} transcripts")
-            else:
-                logger.warning(f"Transcripts file not found at {transcripts_path}, transcript features will be skipped")
-        except Exception as e:
-            logger.warning(f"Error loading transcripts: {e}, transcript features will be skipped")
-        
+    @property
+    def feature_names(self) -> List[str]:
+        """Names of the columns ``transform`` returns, in order."""
+        if self.tfidf is None:
+            raise RuntimeError("VideoFeatureEngineer is not fitted")
+        names = list(self.feature_columns)
+        names += [f"tfidf_{t}" for t in self.tfidf.get_feature_names_out()]
+        if self.pca is not None:
+            names += [f"embedding_pc{i}" for i in range(self.pca.n_components_)]
+        return names
+
+    def fit(self, videos: pd.DataFrame) -> "VideoFeatureEngineer":
+        """Learn everything ``transform`` needs from training videos."""
+        _require(videos, ["title", "duration_sec", "channel_id", "publish_date", "view_count"])
+        self.channel_table = self._learn_channel_table(videos)
+        self.channel_defaults = self.channel_table[CHANNEL_FEATURES].median().to_dict()
+
+        per_video = self.video_features(videos)
+        self.subjects = sorted(per_video["subject"].unique())
+        candidates = self._numeric_frame(per_video, self._candidate_columns())
+        self.feature_columns = select_features_vif(candidates)
+        self.scaler = StandardScaler().fit(candidates[self.feature_columns])
+
+        texts = _texts(videos)
+        small = len(texts) < 20
+        self.tfidf = TfidfVectorizer(
+            max_features=30,
+            min_df=1 if small else 10,
+            max_df=1.0 if small else 0.5,
+            ngram_range=(1, 2),
+            sublinear_tf=True,
+        ).fit(texts)
+
+        self.pca = None
+        if self.embedder is not None:
+            embeddings = self.embedder.get_embeddings(texts, batch_size=32)
+            dims = min(self.max_embedding_dims, *embeddings.shape)
+            self.pca = PCA(n_components=dims, random_state=self.random_seed).fit(embeddings)
+
         logger.info(
-            f"Feature engineer initialized with collection date: {self.collection_date}"
+            f"Fitted on {len(videos)} videos: {len(self.feature_columns)}/{len(candidates.columns)} "
+            f"numeric features kept, {len(self.subjects)} subjects, "
+            f"embeddings={'on' if self.pca is not None else 'off'}"
         )
+        return self
 
-    def fit_transform(self, videos_df: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, videos: pd.DataFrame) -> np.ndarray:
+        """Build the model's feature matrix, one row per video."""
+        if self.scaler is None or self.tfidf is None:
+            raise RuntimeError("VideoFeatureEngineer is not fitted")
+        per_video = self.video_features(videos)
+        numeric = self._numeric_frame(per_video, self.feature_columns)
+        texts = _texts(videos)
+        parts = [self.scaler.transform(numeric), self.tfidf.transform(texts).toarray()]
+        if self.pca is not None:
+            if self.embedder is None:
+                raise RuntimeError("Fitted with embeddings: set `embedder` before transform")
+            parts.append(self.pca.transform(self.embedder.get_embeddings(texts, batch_size=32)))
+        return np.hstack(parts)
+
+    def known_channel(self, videos: pd.DataFrame) -> pd.Series:
+        """True where the video's channel was seen in fit."""
+        if self.channel_table is None:
+            raise RuntimeError("VideoFeatureEngineer is not fitted")
+        ids = videos["channel_id"] if "channel_id" in videos else pd.Series(None, index=videos.index)
+        return ids.isin(self.channel_table.index)
+
+    def video_features(self, videos: pd.DataFrame) -> pd.DataFrame:
+        """Readable per-video features: temporal, text, transcript and channel.
+
+        Needs a fitted channel table (``fit`` builds it first). Statistics
+        columns are passed through untouched and never used.
         """
-        Transform raw video metadata into engineered features.
+        if self.channel_table is None:
+            raise RuntimeError("VideoFeatureEngineer is not fitted")
+        _require(videos, ["title", "duration_sec"])
+        if "channel_id" not in videos and "subject" not in videos:
+            raise ValueError("Each video needs a channel_id or a subject")
 
-        Args:
-            videos_df: DataFrame with raw video metadata
+        df = videos.copy().reset_index(drop=True)
+        for col in ["description", "tags"]:
+            df[col] = df[col].fillna("").astype(str) if col in df else ""
+        df["title"] = df["title"].fillna("").astype(str)
+        df["duration_sec"] = pd.to_numeric(df["duration_sec"], errors="coerce").fillna(0)
+        if "channel_id" not in df:
+            df["channel_id"] = None
+        if "publish_date" not in df:
+            df["publish_date"] = pd.NaT
+        # A planned video without a date is scored as if published now.
+        df["publish_date"] = _as_utc(df["publish_date"]).fillna(pd.Timestamp.now(tz="UTC"))
 
-        Returns:
-            DataFrame with engineered features
+        channel = self.channel_table.reindex(df["channel_id"]).reset_index(drop=True)
+        given = df["subject"] if "subject" in df else pd.Series(np.nan, index=df.index)
+        df["subject"] = given.fillna(channel["subject"]).fillna(UNKNOWN_SUBJECT)
+        for col in CHANNEL_FEATURES:
+            df[col] = channel[col].fillna(self.channel_defaults[col]).values
 
-        Raises:
-            ValueError: If required columns are missing
-        """
-        required_cols = [
-            "video_id",
-            "title",
-            "description",
-            "publish_date",
-            "duration_sec",
-            "view_count",
-            "like_count",
-            "comment_count",
-        ]
-        missing_cols = [col for col in required_cols if col not in videos_df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
-
-        logger.info(f"Starting feature engineering on {len(videos_df)} videos")
-
-        df = videos_df.copy()
-
-        # Ensure datetime type (handle both ISO8601 and standard formats)
-        if not pd.api.types.is_datetime64_any_dtype(df["publish_date"]):
-            df["publish_date"] = pd.to_datetime(
-                df["publish_date"], format="ISO8601", utc=True
-            )
-
-        # Clean basic fields
-        df = self._clean_data(df)
-
-        # Create feature groups
         df = self._create_temporal_features(df)
         df = self._create_text_features(df)
-        df = self._create_engagement_features(df)
-        df = self._create_channel_features(df)
-        df = self._create_transcript_features(df)
 
-        logger.info(f"Feature engineering complete: {df.shape[1]} features")
+        texts = df["transcript_text"] if "transcript_text" in df else pd.Series(None, index=df.index)
+        df["has_transcript"] = texts.map(is_valid_transcript).astype(int)
+        transcript = pd.DataFrame(
+            [
+                _transcript_features(t, float(d), s)
+                for t, d, s in zip(texts, df["duration_sec"], df["subject"], strict=True)
+            ],
+            index=df.index,
+        )
+        return pd.concat([df, transcript[TRANSCRIPT_FEATURES]], axis=1)
 
-        return df
+    def _learn_channel_table(self, videos: pd.DataFrame) -> pd.DataFrame:
+        df = videos.assign(publish_date=_as_utc(videos["publish_date"]))
+        if "subject" not in df:
+            df["subject"] = UNKNOWN_SUBJECT
+        table = df.groupby("channel_id").agg(
+            subject=("subject", lambda s: s.mode().iat[0] if s.notna().any() else UNKNOWN_SUBJECT),
+            channel_video_count=("title", "size"),
+            channel_avg_views=("view_count", "mean"),
+            first_publish=("publish_date", "min"),
+        )
+        table["channel_age_days"] = (pd.Timestamp(self.reference_date) - table["first_publish"]).dt.days
+        return table.drop(columns="first_publish")
 
-    def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Clean and prepare raw data.
+    def _candidate_columns(self) -> List[str]:
+        # Same encoding as pd.get_dummies(drop_first=True) on sorted categories.
+        return NUMERIC_CANDIDATES + [f"subject_{s}" for s in self.subjects[1:]]
 
-        Args:
-            df: Raw video DataFrame
-
-        Returns:
-            Cleaned DataFrame
-        """
-        logger.debug("Cleaning data")
-
-        # Remove videos with 0 views (likely private/unlisted)
-        initial_count = len(df)
-        df = df[df["view_count"] > 0].copy()
-        removed = initial_count - len(df)
-        if removed > 0:
-            logger.info(f"Removed {removed} videos with 0 views")
-
-        # Handle missing statistics
-        df["comment_count"] = df["comment_count"].fillna(0).astype(int)
-        df["like_count"] = df["like_count"].fillna(0).astype(int)
-        df["description"] = df["description"].fillna("")
-        df["tags"] = df["tags"].fillna("") if "tags" in df.columns else ""
-
-        return df
+    @staticmethod
+    def _numeric_frame(per_video: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
+        frame = pd.DataFrame(index=per_video.index)
+        for col in columns:
+            if col.startswith("subject_") and col not in per_video:
+                frame[col] = (per_video["subject"] == col[len("subject_"):]).astype(float)
+            else:
+                frame[col] = pd.to_numeric(per_video[col], errors="coerce").astype(float)
+        return frame.fillna(0.0)
 
     def _create_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -183,17 +378,17 @@ class VideoFeatureEngineer:
         - publish_month, publish_year: Month and year numbers
         - is_evening_upload: Binary (17-21h)
         - is_weekday: Binary (Sun-Thu)
-        
+
         Cyclic encoding (Phase 1 improvements):
         - publish_hour_sin, publish_hour_cos: Cyclic encoding of hour (24h cycle)
         - publish_month_sin, publish_month_cos: Cyclic encoding of month (12-month cycle)
         - publish_day_of_month: Day of month (1-31)
         - publish_day_of_month_sin, publish_day_of_month_cos: Cyclic encoding of day of month
-        
+
         Polynomial features:
         - days_since_publish_squared: Non-linear decay effect
         - log_days_since_publish: Log transform for better scaling
-        
+
         Interaction features:
         - days_since_publish_x_hour: Recency × upload time interaction
         - is_weekday_x_hour: Weekday × upload hour interaction
@@ -207,7 +402,7 @@ class VideoFeatureEngineer:
         """
         logger.debug("Creating temporal features")
 
-        df["days_since_publish"] = (self.collection_date - df["publish_date"]).dt.days
+        df["days_since_publish"] = (self.reference_date - df["publish_date"]).dt.days
 
         df["publish_hour"] = df["publish_date"].dt.hour
         df["publish_day_of_week"] = df["publish_date"].dt.day_name()
@@ -229,11 +424,11 @@ class VideoFeatureEngineer:
         # Hour: 24-hour cycle (preserves continuity: 23h is close to 0h)
         df["publish_hour_sin"] = np.sin(2 * np.pi * df["publish_hour"] / 24)
         df["publish_hour_cos"] = np.cos(2 * np.pi * df["publish_hour"] / 24)
-        
+
         # Month: 12-month cycle
         df["publish_month_sin"] = np.sin(2 * np.pi * df["publish_month"] / 12)
         df["publish_month_cos"] = np.cos(2 * np.pi * df["publish_month"] / 12)
-        
+
         # Day of month: 31-day cycle (approximate month length)
         df["publish_day_of_month_sin"] = np.sin(2 * np.pi * df["publish_day_of_month"] / 31)
         df["publish_day_of_month_cos"] = np.cos(2 * np.pi * df["publish_day_of_month"] / 31)
@@ -241,17 +436,17 @@ class VideoFeatureEngineer:
         # PHASE 1: Polynomial features for non-linear relationships
         # Square of days (captures accelerated decay/growth patterns)
         df["days_since_publish_squared"] = df["days_since_publish"] ** 2
-        
+
         # Log transform (handles exponential growth/decay, reduces skew)
         df["log_days_since_publish"] = np.log1p(df["days_since_publish"])  # log1p = log(1+x) to handle 0
 
         # PHASE 1: Time-based interaction features
         # Recency × upload time (fresh content at different hours may perform differently)
         df["days_since_publish_x_hour"] = df["days_since_publish"] * df["publish_hour"]
-        
+
         # Weekday × upload hour (timing effects differ on weekends vs weekdays)
         df["is_weekday_x_hour"] = df["is_weekday"] * df["publish_hour"]
-        
+
         # Recency × weekday (weekend content may age differently)
         df["days_since_publish_x_is_weekday"] = df["days_since_publish"] * df["is_weekday"]
 
@@ -272,7 +467,6 @@ class VideoFeatureEngineer:
         - description_length: Character count
         - title_word_count: Word count
         - tag_count: Number of tags
-        - subject: Detected subject category
         - is_exam_focused: Binary indicator for exam-related content
 
         Args:
@@ -294,24 +488,6 @@ class VideoFeatureEngineer:
         else:
             df["tag_count"] = 0
 
-        # Subject from channel (merge from channels.csv)
-        if self.channels_df is not None and "channel_id" in df.columns:
-            # Drop existing subject column if present
-            if 'subject' in df.columns:
-                df = df.drop(columns=['subject'])
-            
-            df = df.merge(
-                self.channels_df[['channel_id', 'subjects']],
-                on='channel_id',
-                how='left'
-            )
-            df = df.rename(columns={'subjects': 'subject'})
-            df['subject'] = df['subject'].fillna('Unknown')
-            logger.debug(f"Assigned subjects from channels: {df['subject'].value_counts().to_dict()}")
-        else:
-            df['subject'] = 'Unknown'
-            logger.warning("No channel subjects available, all videos marked as Unknown")
-
         # Exam-focused content detection
         exam_keywords = [
             "bac",
@@ -329,33 +505,22 @@ class VideoFeatureEngineer:
         df["is_exam_focused"] = (
             df["title"].str.lower().str.contains(pattern, na=False)
         ).astype(int)
-        
+
         # TIER 2: Additional text features
         # Is title a question? (engagement signal)
         df["is_title_question"] = (
             df["title"].str.strip().str.endswith(("?", "؟"))
         ).astype(int)
-        
+
         # Exam keyword intensity (normalized by word count)
-        if HAS_BAC_KEYWORDS:
-            df["exam_keyword_intensity"] = df.apply(
-                lambda row: get_exam_keyword_intensity(
-                    str(row["title"]) + " " + str(row["description"]),
-                    row["title_word_count"] + len(str(row["description"]).split())
-                ), axis=1
-            )
-            
-            # Bac markers in title/description
-            df["title_bac_markers"] = df["title"].apply(
-                lambda x: count_bac_markers(str(x)) if pd.notna(x) else 0
-            )
-            df["desc_pedagogical_markers"] = df["description"].apply(
-                lambda x: count_pedagogical_markers(str(x)) if pd.notna(x) else 0
-            )
-        else:
-            df["exam_keyword_intensity"] = 0.0
-            df["title_bac_markers"] = 0
-            df["desc_pedagogical_markers"] = 0
+        df["exam_keyword_intensity"] = [
+            get_exam_keyword_intensity(f"{t} {d}", n + len(str(d).split()))
+            for t, d, n in zip(df["title"], df["description"], df["title_word_count"], strict=True)
+        ]
+        df["title_bac_markers"] = df["title"].map(lambda x: count_bac_markers(str(x)))
+        df["desc_pedagogical_markers"] = df["description"].map(
+            lambda x: count_pedagogical_markers(str(x))
+        )
 
         logger.debug(
             f"Text features: exam_focused={df['is_exam_focused'].sum()}, "
@@ -364,426 +529,38 @@ class VideoFeatureEngineer:
 
         return df
 
-    def _create_engagement_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Create engagement metrics and ratios.
 
-        Features created:
-        - like_ratio: likes / views
-        - comment_ratio: comments / views
-        - engagement_score: weighted combination
-        - engagement_category: Low/Medium/High classification
 
-        Args:
-            df: DataFrame with view_count, like_count, comment_count
+def _require(videos: pd.DataFrame, columns: List[str]) -> None:
+    missing = [c for c in columns if c not in videos.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
 
-        Returns:
-            DataFrame with added engagement features
-        """
-        logger.debug("Creating engagement features")
 
-        # Avoid division by zero
-        safe_views = df["view_count"].replace(0, 1)
+def _texts(videos: pd.DataFrame) -> List[str]:
+    """Title + description, the text the TF-IDF and embeddings see."""
+    title = videos["title"].fillna("").astype(str)
+    description = (
+        videos["description"].fillna("").astype(str) if "description" in videos else ""
+    )
+    return (title + " " + description).tolist()
 
-        # Ratios (kept for potential feature use, but not in target)
-        df["like_ratio"] = df["like_count"] / safe_views
-        df["comment_ratio"] = df["comment_count"] / safe_views
 
-        # Learning Interaction Score (LIS) - Log-transformed for better R² (~0.64)
-        # For educational videos, comments indicate active learning (questions, discussions)
-        # Comments weighted 3x more than likes (learning signal)
-        # Normalized by sqrt(views), log-transformed for better regression performance
-        # To interpret predictions for stakeholders: np.expm1(prediction)
-        df["engagement_score"] = np.log1p(
-            (df["comment_count"] * 3 + df["like_count"]) / np.sqrt(safe_views)
-        )
+def engineered_export(videos: pd.DataFrame, reference_date: Optional[datetime] = None) -> pd.DataFrame:
+    """The engineered CSV for notebooks: per-video features plus engagement columns.
 
-        # Engagement category (based on percentiles)
-        df["engagement_category"] = self._categorize_engagement(df["engagement_score"])
-
-        logger.debug(
-            f"Engagement distribution: "
-            f"{df['engagement_category'].value_counts().to_dict()}"
-        )
-
-        return df
-
-    @staticmethod
-    def _categorize_engagement(scores: pd.Series) -> pd.Series:
-        """
-        Categorize engagement scores into Low/Medium/High.
-
-        Args:
-            scores: Series of engagement scores
-
-        Returns:
-            Series of category labels
-        """
-        percentile_33 = scores.quantile(0.33)
-        percentile_67 = scores.quantile(0.67)
-
-        def categorize(score: float) -> str:
-            if score >= percentile_67:
-                return "High"
-            elif score >= percentile_33:
-                return "Medium"
-            else:
-                return "Low"
-
-        return scores.apply(categorize)
-
-    def _create_channel_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Create channel-level aggregated features.
-
-        Features created:
-        - channel_video_count: Number of videos in dataset from this channel
-        - channel_avg_views: Average views for channel
-        - channel_avg_engagement: Average engagement ratio for channel
-        - channel_age_days: Days since oldest video from channel
-
-        Args:
-            df: DataFrame with channel_id
-
-        Returns:
-            DataFrame with added channel features
-        """
-        logger.debug("Creating channel features")
-
-        if "channel_id" not in df.columns:
-            logger.warning("channel_id column missing, skipping channel features")
-            return df
-
-        # Channel statistics
-        channel_stats = (
-            df.groupby("channel_id")
-            .agg(
-                {
-                    "video_id": "count",
-                    "view_count": "mean",
-                    "duration_sec": "mean",
-                    "publish_date": "min",
-                }
-            )
-            .rename(
-                columns={
-                    "video_id": "channel_video_count",
-                    "view_count": "channel_avg_views",
-                    "duration_sec": "channel_video_avg_duration",
-                }
-            )
-        )
-
-        # Channel age (days since first video)
-        channel_stats["channel_age_days"] = (
-            self.collection_date - channel_stats["publish_date"]
-        ).dt.days
-        channel_stats = channel_stats.drop("publish_date", axis=1)
-
-        # Merge back to original dataframe
-        df = df.merge(channel_stats, on="channel_id", how="left")
-
-        logger.debug(f"Channel features: {df['channel_id'].nunique()} unique channels")
-
-        return df
-    
-    def _create_transcript_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Extract and merge transcript features from transcripts dataset.
-
-        Features created (if transcript available):
-        - transcript_word_count: Number of words in transcript
-        - transcript_char_count: Number of characters in transcript
-        - transcript_sentence_count: Number of sentences
-        - avg_words_per_sentence: Average words per sentence
-        - lexical_diversity: Unique words / total words
-        - unique_word_count: Number of unique words
-        - flesch_reading_ease: Readability score
-        - flesch_kincaid_grade: Grade level
-        - gunning_fog_index: Readability metric
-        - automated_readability_index: Readability metric
-        - speech_rate_wpm: Words per minute (if duration available)
-        - speech_rate_optimal: 1 if 120-180 WPM, else 0
-        - question_count, question_density: Question markers
-        - example_count, example_density: Example markers
-        - explanation_count, explanation_density: Explanation markers
-        - contrast_count, contrast_density: Contrast markers
-        - technical_term_count, technical_term_density: Technical terms
-        - subject_keyword_count, subject_keyword_density: Subject-specific keywords
-
-        Args:
-            df: DataFrame with video_id column
-
-        Returns:
-            DataFrame with added transcript features (NaN for videos without transcripts)
-        """
-        logger.debug("Creating transcript features")
-        
-        if self.transcripts_df is None:
-            logger.info("No transcripts available, skipping transcript features")
-            return df
-        
-        # Extract features from transcripts
-        try:
-            from src.features.transcript_features import extract_transcript_features
-            from tqdm import tqdm
-            
-            logger.info(f"Extracting features from {len(self.transcripts_df)} transcripts...")
-            transcript_features_list = []
-            
-            # Progress bar for transcript processing
-            for idx, row in tqdm(
-                self.transcripts_df.iterrows(), 
-                total=len(self.transcripts_df),
-                desc="Extracting transcript features",
-                unit="transcript"
-            ):
-                video_id = row.get('video_id')
-                transcript_text = row.get('transcript_text')
-                
-                # Get duration and subject for this video if available
-                duration_sec = None
-                subject = None
-                
-                if video_id and video_id in df['video_id'].values:
-                    video_row = df[df['video_id'] == video_id].iloc[0]
-                    duration_sec = video_row.get('duration_sec')
-                    subject = video_row.get('subject')
-                
-                # Extract features
-                features = extract_transcript_features(transcript_text, duration_sec, subject)
-                features['video_id'] = video_id
-                transcript_features_list.append(features)
-            
-            transcript_features_df = pd.DataFrame(transcript_features_list)
-            
-            # Merge transcript features with main dataframe (left join to keep all videos)
-            logger.info("Merging transcript features with main dataset...")
-            df = df.merge(
-                transcript_features_df,
-                on='video_id',
-                how='left',
-                suffixes=('', '_transcript')
-            )
-            
-            # Log statistics
-            videos_with_transcripts = df['transcript_word_count'].notna().sum()
-            videos_without = len(df) - videos_with_transcripts
-            logger.info(
-                f"Transcript features merged: {videos_with_transcripts:,} videos with transcripts, "
-                f"{videos_without:,} without ({videos_with_transcripts/len(df)*100:.1f}% coverage)"
-            )
-            
-        except ImportError as e:
-            logger.warning(f"Could not import transcript_features module: {e}")
-        except Exception as e:
-            logger.error(f"Error extracting transcript features: {e}")
-        
-        return df
-
-    def select_features(
-        self, df: pd.DataFrame, include_target: bool = True
-    ) -> pd.DataFrame:
-        """
-        Select final feature set for modeling.
-
-        Args:
-            df: DataFrame with all engineered features
-            include_target: Whether to include target variable (engagement_category)
-
-        Returns:
-            DataFrame with selected features
-        """
-        feature_columns = [
-            # Identifiers
-            "video_id",
-            "title",
-            "channel_id",
-            "channel_title",
-            "description",
-            # Temporal (basic)
-            "publish_date",
-            "is_weekday",
-            # Content
-            "duration_sec",
-            "title_length",
-            "description_length",
-            "title_word_count",
-            "tag_count",
-            "subject",
-            "is_exam_focused",
-            # Engagement (features)
-            "view_count",
-            "like_count",
-            "comment_count",
-            "like_ratio",
-            "comment_ratio",
-            "engagement_score",
-            # Channel
-            "channel_video_count",
-            "channel_avg_views",
-            "channel_video_avg_duration",
-            "channel_age_days",
-            # Transcript Features (if available)
-            "transcript_word_count",
-            "transcript_char_count",
-            "transcript_sentence_count",
-            "avg_words_per_sentence",
-            "lexical_diversity",
-            "unique_word_count",
-            "flesch_reading_ease",
-            "flesch_kincaid_grade",
-            "gunning_fog_index",
-            "automated_readability_index",
-            "speech_rate_wpm",
-            "speech_rate_optimal",
-            "question_count",
-            "question_density",
-            "example_count",
-            "example_density",
-            "explanation_count",
-            "explanation_density",
-            "contrast_count",
-            "contrast_density",
-            "technical_term_count",
-            "technical_term_density",
-            "subject_keyword_count",
-            "subject_keyword_density",
-            # New Tier 2 text features
-            "is_title_question",
-            "exam_keyword_intensity",
-            "title_bac_markers",
-            "desc_pedagogical_markers",
-            # New transcript features
-            "speech_rate_above_optimal",
-            "speech_rate_below_optimal",
-            "domain_keyword_count",
-            "domain_keyword_density",
-            "bac_marker_count",
-            "bac_marker_density",
-            "pedagogical_marker_count",
-            "pedagogical_marker_density",
-            # others
-            "has_transcript",
-            
-        ]
-
-        if include_target:
-            feature_columns.append("engagement_category")
-
-        # Only include columns that exist
-        available_columns = [col for col in feature_columns if col in df.columns]
-
-        logger.info(f"Selected {len(available_columns)} features for modeling")
-
-        return df[available_columns].copy()
-    
-    def select_best_features(
-        self,
-        df: pd.DataFrame,
-        target_col: str = "engagement_score",
-        vif_threshold: float = 10.0,
-        correlation_threshold: float = 0.95,
-        min_target_correlation: float = 0.05,
-    ) -> pd.DataFrame:
-        """
-        Select best features using VIF and correlation analysis.
-        
-        Reduces multicollinearity and removes uninformative features.
-        
-        Args:
-            df: DataFrame with all features
-            target_col: Target variable column name
-            vif_threshold: Maximum VIF value (features above are removed)
-            correlation_threshold: Max correlation between features (remove one if higher)
-            min_target_correlation: Minimum absolute correlation with target to keep
-            
-        Returns:
-            DataFrame with selected features
-        """
-        from statsmodels.stats.outliers_influence import variance_inflation_factor
-        
-        logger.info("Starting feature selection with VIF and correlation analysis")
-        
-        # Get numeric columns only (exclude identifiers and target)
-        exclude_cols = [
-            "video_id", "title", "description", "channel_id", "channel_title",
-            "publish_date", "subject", "engagement_category", target_col
-        ]
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        feature_cols = [c for c in numeric_cols if c not in exclude_cols]
-        
-        if not feature_cols:
-            logger.warning("No numeric feature columns found")
-            return df
-        
-        X = df[feature_cols].copy()
-        
-        # Handle missing values for VIF calculation
-        X = X.fillna(0)
-        
-        # Step 1: Remove highly correlated features (keep one from each pair)
-        corr_matrix = X.corr().abs()
-        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-        
-        to_drop_corr = set()
-        for col in upper.columns:
-            highly_correlated = upper.index[upper[col] > correlation_threshold].tolist()
-            if highly_correlated:
-                to_drop_corr.update(highly_correlated)
-        
-        if to_drop_corr:
-            logger.info(f"Removing {len(to_drop_corr)} features due to high inter-correlation: {list(to_drop_corr)[:5]}...")
-            X = X.drop(columns=list(to_drop_corr))
-            feature_cols = [c for c in feature_cols if c not in to_drop_corr]
-        
-        # Step 2: VIF filtering (iterative removal)
-        removed_vif = []
-        while True:
-            if len(X.columns) < 2:
-                break
-            
-            # Calculate VIF for each feature
-            vif_data = []
-            for i, col in enumerate(X.columns):
-                try:
-                    vif = variance_inflation_factor(X.values, i)
-                    vif_data.append((col, vif))
-                except Exception:
-                    vif_data.append((col, 0))
-            
-            # Find max VIF
-            vif_df = pd.DataFrame(vif_data, columns=["feature", "VIF"])
-            max_vif_row = vif_df.loc[vif_df["VIF"].idxmax()]
-            
-            if max_vif_row["VIF"] > vif_threshold:
-                removed_vif.append(max_vif_row["feature"])
-                X = X.drop(columns=[max_vif_row["feature"]])
-            else:
-                break
-        
-        if removed_vif:
-            logger.info(f"Removed {len(removed_vif)} features due to high VIF: {removed_vif[:5]}...")
-        
-        # Step 3: Remove features with low correlation to target
-        if target_col in df.columns:
-            target = df[target_col].fillna(0)
-            low_corr_features = []
-            for col in X.columns:
-                corr = X[col].corr(target)
-                if abs(corr) < min_target_correlation:
-                    low_corr_features.append(col)
-            
-            if low_corr_features:
-                logger.info(f"Removing {len(low_corr_features)} features with low target correlation")
-                X = X.drop(columns=low_corr_features)
-        
-        selected_features = X.columns.tolist()
-        logger.info(f"Feature selection complete: {len(selected_features)} features retained from {len(feature_cols)}")
-        
-        # Return full DataFrame with only selected numeric features + non-numeric columns
-        keep_cols = exclude_cols + selected_features + [target_col]
-        keep_cols = [c for c in keep_cols if c in df.columns]
-        
-        return df[keep_cols].copy()
-
+    Channel statistics here come from all ``videos``. For modeling, fit
+    ``VideoFeatureEngineer`` on the training split only.
+    """
+    engineer = VideoFeatureEngineer(reference_date=reference_date)
+    engineer.channel_table = engineer._learn_channel_table(videos)
+    engineer.channel_defaults = engineer.channel_table[CHANNEL_FEATURES].median().to_dict()
+    df = engineer.video_features(videos)
+    views = df["view_count"].fillna(0).clip(lower=1)
+    df["like_ratio"] = df["like_count"].fillna(0) / views
+    df["comment_ratio"] = df["comment_count"].fillna(0) / views
+    df["engagement_score"] = engagement_score(df)
+    df["engagement_category"] = engagement_category(
+        df["engagement_score"], df["engagement_score"].quantile([0.33, 0.67]).tolist()
+    )
+    return df[[c for c in EXPORT_COLUMNS if c in df.columns]]
