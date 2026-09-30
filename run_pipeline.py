@@ -681,9 +681,9 @@ Examples:
         help="Model output directory (default: models/)"
     )
     train_parser.add_argument(
-        "--model-type", type=str, default="catboost",
+        "--model-type", type=str, default="rf",
         choices=["catboost", "xgboost", "lightgbm", "rf"],
-        help="Model type (default: catboost)"
+        help="Model type (default: rf, the best model from the notebook comparison)"
     )
     train_parser.add_argument(
         "--split-file", type=Path, default=None,

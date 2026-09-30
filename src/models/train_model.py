@@ -69,8 +69,15 @@ def get_model(model_type: str, random_seed: int = RANDOM_SEED) -> Any:
             verbose=-1,
         )
     if model_type == "rf":
+        # The notebook's best model (test R² 0.693 in notebook 03, before the leakage fix).
         return RandomForestRegressor(
-            n_estimators=100, max_depth=20, n_jobs=-1, random_state=random_seed
+            n_estimators=357,
+            max_depth=21,
+            min_samples_split=3,
+            min_samples_leaf=1,
+            max_features=0.5,
+            n_jobs=-1,
+            random_state=random_seed,
         )
     raise ValueError(f"Unknown model type: {model_type}. Choose from {MODEL_TYPES}")
 
@@ -93,7 +100,7 @@ class CachedEmbedder:
 def train(
     videos: pd.DataFrame,
     output_dir: Union[str, Path],
-    model_type: str = "catboost",
+    model_type: str = "rf",
     embedder: Optional[TextEmbedder] = None,
     embedding_model: Optional[str] = None,
     test_ids: Optional[Iterable[str]] = None,

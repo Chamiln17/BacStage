@@ -18,9 +18,9 @@ Fitting on the training split only keeps test videos out of the channel statisti
 ## CLI
 
 ```bash
-# Train (CatBoost by default); reads cleaned videos + transcripts, writes models/
+# Train (tuned random forest by default); reads cleaned videos + transcripts, writes models/
 uv run python run_pipeline.py train
-uv run python run_pipeline.py train --model-type rf --no-arabert
+uv run python run_pipeline.py train --model-type catboost --no-arabert
 uv run python run_pipeline.py train --split-file splits_mapping.csv   # hold out split=test rows
 
 # Predict for planned videos (JSON object, JSON list, or CSV)
