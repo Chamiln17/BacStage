@@ -6,17 +6,16 @@ Supports manual captions, auto-generated, and multiple languages (Arabic, French
 """
 
 import logging
-import time
 import re
+import threading
+import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
-from collections import deque
-import threading
 
 import pandas as pd
 import requests
-
 import yt_dlp
 
 from src.features.transcript_features import is_valid_transcript
@@ -335,7 +334,8 @@ class TranscriptCollector:
                         # Double check deduplication on save just in case
                         checkpoint_df = checkpoint_df.drop_duplicates(subset=[video_id_column])
                         checkpoint_df.to_csv(checkpoint_path, index=False)
-                    except Exception: pass
+                    except OSError as e:
+                        logger.warning(f"Could not save checkpoint {checkpoint_path}: {e}")
 
             time.sleep(self.rate_limit_delay)
 
