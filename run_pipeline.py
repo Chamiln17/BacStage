@@ -98,7 +98,7 @@ def cmd_engineer(args: argparse.Namespace) -> int:
 def cmd_transcripts(args: argparse.Namespace) -> int:
     """Collect YouTube transcripts."""
     from src.data.transcript_collector import collect_transcripts_cli
-    return collect_transcripts_cli(args.input, args.output, args.proxy, getattr(args, 'workers', 1))
+    return collect_transcripts_cli(args.input, args.output, args.delay)
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -555,8 +555,8 @@ Examples:
         help="Output CSV for transcripts"
     )
     transcripts_parser.add_argument(
-        "--proxy", type=str, default=None,
-        help="Optional proxy URL (e.g. http://user:pass@host:port)"
+        "--delay", type=float, default=2.0,
+        help="Seconds to wait between videos (default: 2)"
     )
     transcripts_parser.set_defaults(func=cmd_transcripts)
     

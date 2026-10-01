@@ -23,6 +23,12 @@ try:
     import pytesseract
 except ImportError as e:
     print(f"Warning: Some thumbnail analysis dependencies not installed: {e}")
+else:
+    import shutil
+    # The Windows installer does not add Tesseract to PATH.
+    _WINDOWS_TESSERACT = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    if shutil.which("tesseract") is None and _WINDOWS_TESSERACT.exists():
+        pytesseract.pytesseract.tesseract_cmd = str(_WINDOWS_TESSERACT)
 
 
 @dataclass

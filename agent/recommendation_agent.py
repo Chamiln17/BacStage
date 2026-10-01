@@ -421,7 +421,7 @@ class RecommendationAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "llama-3.3-70b-versatile",
+        model_name: Optional[str] = None,
         rag_index_path: str = "models/rag_index"
     ):
         """
@@ -429,11 +429,11 @@ class RecommendationAgent:
         
         Args:
             api_key: Groq API key (or set GROQ_API_KEY env var)
-            model_name: Groq model to use
+            model_name: Groq model to use (or set GROQ_MODEL env var; default openai/gpt-oss-120b)
             rag_index_path: Path to saved RAG index
         """
         self.api_key = api_key or os.getenv("GROQ_API_KEY")
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         self.rag_index_path = rag_index_path
         
         # Initialize components

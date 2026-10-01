@@ -198,6 +198,110 @@ wheels = [
 ]
 
 [[package]]
+name = "bacstage"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "catboost" },
+    { name = "google-api-python-client" },
+    { name = "ipykernel" },
+    { name = "joblib" },
+    { name = "lightgbm" },
+    { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "optuna" },
+    { name = "pandas" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "seaborn" },
+    { name = "statsmodels" },
+    { name = "textstat" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+    { name = "xgboost" },
+    { name = "yt-dlp" },
+]
+
+[package.optional-dependencies]
+app = [
+    { name = "faiss-cpu" },
+    { name = "groq" },
+    { name = "opencv-python" },
+    { name = "pytesseract" },
+    { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "sentence-transformers" },
+    { name = "streamlit" },
+]
+dev = [
+    { name = "black" },
+    { name = "ipykernel" },
+    { name = "jupyter" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pandas-stubs" },
+    { name = "types-tqdm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.7.0" },
+    { name = "catboost", specifier = ">=1.2.8" },
+    { name = "faiss-cpu", marker = "extra == 'app'", specifier = ">=1.7.4" },
+    { name = "google-api-python-client", specifier = ">=2.100.0" },
+    { name = "groq", marker = "extra == 'app'", specifier = ">=0.4.0" },
+    { name = "ipykernel", specifier = ">=7.1.0" },
+    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.25.0" },
+    { name = "joblib", specifier = ">=1.3.0" },
+    { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "lightgbm", specifier = ">=4.6.0" },
+    { name = "matplotlib", specifier = ">=3.7.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
+    { name = "numpy", specifier = ">=1.24.0" },
+    { name = "opencv-python", marker = "extra == 'app'", specifier = ">=4.8.0" },
+    { name = "optuna", specifier = ">=4.7.0" },
+    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pytesseract", marker = "extra == 'app'", specifier = ">=0.3.10" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.0.285" },
+    { name = "scikit-image", marker = "extra == 'app'", specifier = ">=0.21.0" },
+    { name = "scikit-learn", specifier = ">=1.3.0" },
+    { name = "scipy", marker = "extra == 'app'", specifier = ">=1.10.0" },
+    { name = "seaborn", specifier = ">=0.12.0" },
+    { name = "sentence-transformers", marker = "extra == 'app'", specifier = ">=2.2.0" },
+    { name = "statsmodels", specifier = ">=0.14.6" },
+    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.28.0" },
+    { name = "textstat", specifier = ">=0.7.12" },
+    { name = "torch", specifier = "==2.5.1", index = "https://download.pytorch.org/whl/cu121" },
+    { name = "tqdm", specifier = ">=4.65.0" },
+    { name = "transformers", specifier = ">=4.40.0,<4.50.0" },
+    { name = "xgboost", specifier = ">=3.1.3" },
+    { name = "yt-dlp", specifier = ">=2025.12.8" },
+]
+provides-extras = ["dev", "app"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pandas-stubs", specifier = ">=2.3.3.260113" },
+    { name = "types-tqdm", specifier = ">=4.67.0.20250809" },
+]
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.14.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3293,15 +3397,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pysocks"
-version = "1.7.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bd/11/293dd436aea955d45fc4e8a35b6ae7270f5b8e00b53cf6c024c83b657a11/PySocks-1.7.1.tar.gz", hash = "sha256:3f8804571ebe159c380ac6de37643bb4685970655d3bba243530d6558b799aa0", size = 284429, upload-time = "2019-09-20T02:07:35.714Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl", hash = "sha256:2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5", size = 16725, upload-time = "2019-09-20T02:06:22.938Z" },
-]
-
-[[package]]
 name = "pytesseract"
 version = "0.3.13"
 source = { registry = "https://pypi.org/simple" }
@@ -4335,116 +4430,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sic"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "catboost" },
-    { name = "google-api-python-client" },
-    { name = "ipykernel" },
-    { name = "joblib" },
-    { name = "lightgbm" },
-    { name = "matplotlib" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "optuna" },
-    { name = "pandas" },
-    { name = "pysocks" },
-    { name = "pytest" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "seaborn" },
-    { name = "statsmodels" },
-    { name = "stem" },
-    { name = "textstat" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "transformers" },
-    { name = "xgboost" },
-    { name = "yt-dlp" },
-]
-
-[package.optional-dependencies]
-app = [
-    { name = "faiss-cpu" },
-    { name = "groq" },
-    { name = "opencv-python" },
-    { name = "pytesseract" },
-    { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "sentence-transformers" },
-    { name = "streamlit" },
-]
-dev = [
-    { name = "black" },
-    { name = "ipykernel" },
-    { name = "jupyter" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pandas-stubs" },
-    { name = "types-tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.7.0" },
-    { name = "catboost", specifier = ">=1.2.8" },
-    { name = "faiss-cpu", marker = "extra == 'app'", specifier = ">=1.7.4" },
-    { name = "google-api-python-client", specifier = ">=2.100.0" },
-    { name = "groq", marker = "extra == 'app'", specifier = ">=0.4.0" },
-    { name = "ipykernel", specifier = ">=7.1.0" },
-    { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.25.0" },
-    { name = "joblib", specifier = ">=1.3.0" },
-    { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "lightgbm", specifier = ">=4.6.0" },
-    { name = "matplotlib", specifier = ">=3.7.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "numpy", specifier = ">=1.24.0" },
-    { name = "opencv-python", marker = "extra == 'app'", specifier = ">=4.8.0" },
-    { name = "optuna", specifier = ">=4.7.0" },
-    { name = "pandas", specifier = ">=2.0.0" },
-    { name = "pysocks", specifier = ">=1.7.1" },
-    { name = "pytesseract", marker = "extra == 'app'", specifier = ">=0.3.10" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.0.285" },
-    { name = "scikit-image", marker = "extra == 'app'", specifier = ">=0.21.0" },
-    { name = "scikit-learn", specifier = ">=1.3.0" },
-    { name = "scipy", marker = "extra == 'app'", specifier = ">=1.10.0" },
-    { name = "seaborn", specifier = ">=0.12.0" },
-    { name = "sentence-transformers", marker = "extra == 'app'", specifier = ">=2.2.0" },
-    { name = "statsmodels", specifier = ">=0.14.6" },
-    { name = "stem", specifier = ">=1.8.2" },
-    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.28.0" },
-    { name = "textstat", specifier = ">=0.7.12" },
-    { name = "torch", specifier = "==2.5.1", index = "https://download.pytorch.org/whl/cu121" },
-    { name = "tqdm", specifier = ">=4.65.0" },
-    { name = "transformers", specifier = ">=4.40.0,<4.50.0" },
-    { name = "xgboost", specifier = ">=3.1.3" },
-    { name = "yt-dlp", specifier = ">=2025.12.8" },
-]
-provides-extras = ["dev", "app"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pandas-stubs", specifier = ">=2.3.3.260113" },
-    { name = "types-tqdm", specifier = ">=4.67.0.20250809" },
-]
-
-[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4600,12 +4585,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/36/4d44f7035ab3c0b2b6a4c4ebb98dedf36246ccbc1b3e2f51ebcd7ac83abb/statsmodels-0.14.6-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:a518d3f9889ef920116f9fa56d0338069e110f823926356946dae83bc9e33e19", size = 10363350, upload-time = "2025-12-05T23:13:53.08Z" },
     { url = "https://files.pythonhosted.org/packages/26/33/f1652d0c59fa51de18492ee2345b65372550501ad061daa38f950be390b6/statsmodels-0.14.6-cp314-cp314-win_amd64.whl", hash = "sha256:151b73e29f01fe619dbce7f66d61a356e9d1fe5e906529b78807df9189c37721", size = 9588010, upload-time = "2025-12-05T23:14:07.28Z" },
 ]
-
-[[package]]
-name = "stem"
-version = "1.8.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/94/c6/b2258155546f966744e78b9862f62bd2b8671b422bb9951a1330e4c8fd73/stem-1.8.2.tar.gz", hash = "sha256:83fb19ffd4c9f82207c006051480389f80af221a7e4783000aedec4e384eb582", size = 2859640, upload-time = "2023-06-06T06:37:21.251Z" }
 
 [[package]]
 name = "streamlit"

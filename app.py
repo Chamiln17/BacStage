@@ -1,6 +1,6 @@
 """
-Bac YouTube Video Optimizer - Streamlit Web Interface
-======================================================
+BacStage - Streamlit Web Interface
+==================================
 A user-friendly interface for Algerian Baccalaureate educational video creators
 to get AI-powered recommendations for improving their content.
 """
@@ -39,7 +39,7 @@ except ImportError as e:
 
 # Page config
 st.set_page_config(
-    page_title="محسّن فيديوهات البكالوريا",
+    page_title="BacStage",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -136,8 +136,8 @@ def render_header():
     """Render the main header."""
     st.markdown("""
     <div class="main-header">
-        <h1>🎓 محسّن فيديوهات البكالوريا</h1>
-        <p>أداة ذكاء اصطناعي لتحسين محتوى الفيديوهات التعليمية للطلاب الجزائريين</p>
+        <h1>🎓 BacStage</h1>
+        <p>اكتشف ما يجعل دروس البكالوريا تنجح على يوتيوب: توقّع التفاعل ومدرّب ذكي لصانعي المحتوى</p>
     </div>
     """, unsafe_allow_html=True)
 
