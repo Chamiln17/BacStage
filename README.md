@@ -51,7 +51,7 @@ cp .env.example .env          # add YOUTUBE_API_KEY (pipeline) and GROQ_API_KEY 
 uv run pytest                 # offline test suite
 ```
 
-Build your own dataset and model (the repository ships none, see [Data and ethics](docs/data.md)):
+Build your own dataset and model. The repository ships none (see [Data and ethics](docs/data.md)), so start by listing the channels to study in `data/raw/channels.csv` with columns `channel_id,channel_name,subjects`:
 
 ```bash
 uv run python run_pipeline.py collect --channels data/raw/channels.csv
