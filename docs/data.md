@@ -1,6 +1,6 @@
 # Data and ethics
 
-**This repository contains code only.** It ships no collected YouTube data, no transcripts, no knowledge base and no trained models. That choice is recorded in [ADR 0001](adr/0001-publish-code-only.md), and the reasons come from primary sources collected in [the publishing research](research/youtube-data-publishing.md).
+**This repository contains code only.** It ships no collected YouTube data, no transcripts, no knowledge base and no trained models. The reasons come from primary sources collected in [the publishing research](research/youtube-data-publishing.md).
 
 The research is not legal advice. In short:
 

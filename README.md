@@ -80,7 +80,7 @@ The full docs are at **[chamiln17.github.io/BacStage](https://chamiln17.github.i
 - [Engagement model card](docs/model-card.md): inputs, metrics, limitations
 - [Creator coach](docs/coach.md): how the app works and how to run it
 - [Data and ethics](docs/data.md): what is (not) published and why
-- [Glossary](CONTEXT.md) and [decisions](docs/adr/)
+- [Glossary](CONTEXT.md)
 
 The notebooks in `notebooks/` are the original exploration and model comparison. They predate the current pipeline API, and their results are summarised in the [model card](docs/model-card.md).
 
