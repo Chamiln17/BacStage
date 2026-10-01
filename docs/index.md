@@ -27,4 +27,4 @@ BacStage studies 9,801 Algerian Baccalaureate (3AS) lessons on YouTube, predicts
 >
 > **En français :** BacStage analyse les cours du Bac algérien sur YouTube, prédit l'engagement avant publication et conseille l'enseignant.
 
-Source code: [github.com/Chamiln17/BacStage](https://github.com/Chamiln17/BacStage).
+Built by Chamel Nadir Bouacha, Abdelkebir Achraf, Nibras Norelislam Bouzidi and lahcenbcf in the Samsung Innovation Campus program. Source code: [github.com/Chamiln17/BacStage](https://github.com/Chamiln17/BacStage).

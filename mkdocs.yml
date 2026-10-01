@@ -49,6 +49,7 @@ nav:
   - Creator coach: coach.md
   - Data and ethics: data.md
   - Glossary: glossary.md
+  - "Future work: comment sentiment": future-work-comment-sentiment.md
   - Decisions:
       - "ADR 0001: publish code only": adr/0001-publish-code-only.md
   - "Research: publishing YouTube data": research/youtube-data-publishing.md

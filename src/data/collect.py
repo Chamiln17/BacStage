@@ -10,7 +10,7 @@ This script combines all collection functionality:
 - Video registry for tracking known videos
 
 Usage:
-    uv run python -m src.data.collect --channels data/raw/channels.csv
+    uv run python -m src.data.collect --channels config/channels.csv
 """
 
 import argparse
@@ -188,19 +188,19 @@ def main() -> None:
         epilog="""
 Examples:
   # Basic collection (discover + enrich + channel stats)
-  uv run python -m src.data.collect --channels data/raw/channels.csv
+  uv run python -m src.data.collect --channels config/channels.csv
 
   # Skip discovery (only refresh stats for known videos)
-  uv run python -m src.data.collect --channels data/raw/channels.csv --no-discover
+  uv run python -m src.data.collect --channels config/channels.csv --no-discover
 
   # Keep only latest snapshot per video
-  uv run python -m src.data.collect --channels data/raw/channels.csv --mode dedupe
+  uv run python -m src.data.collect --channels config/channels.csv --mode dedupe
 
   # Include comment samples
-  uv run python -m src.data.collect --channels data/raw/channels.csv --collect-comments
+  uv run python -m src.data.collect --channels config/channels.csv --collect-comments
 
   # Limit videos and quota
-  uv run python -m src.data.collect --channels data/raw/channels.csv --max-videos 50 --max-quota 5000
+  uv run python -m src.data.collect --channels config/channels.csv --max-videos 50 --max-quota 5000
         """,
     )
 

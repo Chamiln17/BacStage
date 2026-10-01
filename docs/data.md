@@ -29,14 +29,14 @@ Bring your own YouTube Data API key and rebuild everything:
 
 ```bash
 cp .env.example .env                        # set YOUTUBE_API_KEY
-uv run python run_pipeline.py collect --channels data/raw/channels.csv
+uv run python run_pipeline.py collect --channels config/channels.csv
 uv run python run_pipeline.py filter_data
 uv run python run_pipeline.py transcripts --input data/processed/videos_bac_only.csv --output data/processed/transcripts.csv
 uv run python run_pipeline.py clean --transcripts data/processed/transcripts.csv
 uv run python run_pipeline.py train
 ```
 
-`data/raw/channels.csv` is the list of channels to study, with columns `channel_id,channel_name,subjects`, and `subjects` must be one of the nine [subjects](glossary.md). Statistics refreshes are cheap: one quota unit per 50 videos.
+`config/channels.csv` is the list of channels to study, with columns `channel_id,channel_name,subjects`, and `subjects` must be one of the nine [subjects](glossary.md). It holds the 36 public channels this project studied; being on the list is not an endorsement, and the file contains no statistics. Statistics refreshes are cheap: one quota unit per 50 videos.
 
 Keep the 30-day limit in mind: delete or refresh API data within 30 days of collecting it.
 

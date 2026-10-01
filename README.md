@@ -51,10 +51,10 @@ cp .env.example .env          # add YOUTUBE_API_KEY (pipeline) and GROQ_API_KEY 
 uv run pytest                 # offline test suite
 ```
 
-Build your own dataset and model. The repository ships none (see [Data and ethics](docs/data.md)), so start by listing the channels to study in `data/raw/channels.csv` with columns `channel_id,channel_name,subjects`:
+Build your own dataset and model. The repository ships no collected data (see [Data and ethics](docs/data.md)); `config/channels.csv` lists the 36 channels we studied, and you can edit it:
 
 ```bash
-uv run python run_pipeline.py collect --channels data/raw/channels.csv
+uv run python run_pipeline.py collect --channels config/channels.csv
 uv run python run_pipeline.py filter_data
 uv run python run_pipeline.py transcripts --input data/processed/videos_bac_only.csv --output data/processed/transcripts.csv
 uv run python run_pipeline.py clean --transcripts data/processed/transcripts.csv
@@ -86,7 +86,7 @@ The notebooks in `notebooks/` are the original exploration and model comparison.
 
 ## Team
 
-Built by **Chamel Nadir Bouacha**, **Abdelkebir Achraf**, **Nibras Norelislam Bouzidi** and **lahcenbcf**.
+Built by **Chamel Nadir Bouacha**, **Abdelkebir Achraf**, **Nibras Norelislam Bouzidi** and **lahcenbcf** as a team project in the **Samsung Innovation Campus** program.
 
 ## License
 

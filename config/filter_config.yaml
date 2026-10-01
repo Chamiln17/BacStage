@@ -111,7 +111,7 @@ markers:
 # Output paths (relative to project root)
 paths:
   input: data/raw/videos_metadata.csv
-  channels: data/raw/channels.csv
+  channels: config/channels.csv
   output_dir: data/processed
   validation_dir: data/validation
 

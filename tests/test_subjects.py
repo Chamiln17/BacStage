@@ -13,7 +13,7 @@ from src.features.bac_keywords import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-CHANNELS = ROOT / "data" / "raw" / "channels.csv"
+CHANNELS = ROOT / "config" / "channels.csv"
 KNOWLEDGE_BASE = ROOT / "knowledge_base"
 
 
@@ -38,13 +38,12 @@ def test_unknown_subject_raises() -> None:
         canonical_subject("Chemistry")
 
 
-# Collected data and the knowledge base are not published (ADR 0001); these run locally.
-@pytest.mark.skipif(not CHANNELS.exists(), reason="data/raw/channels.csv is not in the public repo")
 def test_channels_csv_uses_canonical_subjects() -> None:
     subjects = pd.read_csv(CHANNELS)["subjects"]
     assert set(subjects.str.strip()) <= set(SUBJECTS)
 
 
+# The knowledge base is not published (ADR 0001); this runs locally.
 @pytest.mark.skipif(not KNOWLEDGE_BASE.exists(), reason="knowledge_base/ is not in the public repo")
 def test_every_subject_has_a_knowledge_base_file() -> None:
     names = {p.name.removesuffix("_best_practices.json") for p in KNOWLEDGE_BASE.glob("*_best_practices.json")}

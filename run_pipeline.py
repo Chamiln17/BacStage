@@ -10,12 +10,12 @@ This is the main entry point for all pipeline operations:
 - full-pipeline: Run everything in sequence
 
 Usage:
-    uv run python run_pipeline.py collect --channels data/raw/channels.csv
+    uv run python run_pipeline.py collect --channels config/channels.csv
     uv run python run_pipeline.py filter_data
     uv run python run_pipeline.py filter_data --skip-discovery --validate
     uv run python run_pipeline.py engineer
     uv run python run_pipeline.py analyze
-    uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv --filter
+    uv run python run_pipeline.py full-pipeline --channels config/channels.csv --filter
 """
 
 import argparse
@@ -466,10 +466,10 @@ Commands:
 
 Examples:
   # Full pipeline with filtering
-  uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv --filter
+  uv run python run_pipeline.py full-pipeline --channels config/channels.csv --filter
 
   # Just collect data
-  uv run python run_pipeline.py collect --channels data/raw/channels.csv
+  uv run python run_pipeline.py collect --channels config/channels.csv
 
   # Apply data-driven filter (discovery + filter)
   uv run python run_pipeline.py filter_data
@@ -591,7 +591,7 @@ Examples:
         help="Input video metadata CSV"
     )
     filter_parser.add_argument(
-        "--channels", type=Path, default=Path("data/raw/channels.csv"),
+        "--channels", type=Path, default=Path("config/channels.csv"),
         help="Channels CSV with subject mapping"
     )
     filter_parser.add_argument(

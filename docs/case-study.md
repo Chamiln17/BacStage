@@ -85,4 +85,4 @@ So **the repository is code only**. The transcripts, models and labels live in a
 
 ## Team
 
-Chamel Nadir Bouacha, Abdelkebir Achraf, Nibras Norelislam Bouzidi and lahcenbcf.
+Chamel Nadir Bouacha, Abdelkebir Achraf, Nibras Norelislam Bouzidi and lahcenbcf, as a team project in the Samsung Innovation Campus program.
