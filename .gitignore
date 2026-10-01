@@ -59,3 +59,10 @@ htmlcov/
 .tor_instances/
 data/processed/transcripts_part1_checkpoint.csv
 models/best_random_forest_(optuna)_baseline.pkl
+
+# Kept locally, not published
+ideation.excalidraw
+test-thumbnails/
+models/
+knowledge_base/
+data/

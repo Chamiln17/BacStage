@@ -5,11 +5,12 @@ A user-friendly interface for Algerian Baccalaureate educational video creators
 to get AI-powered recommendations for improving their content.
 """
 
-import streamlit as st
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+import streamlit as st
 
 # Add agent directory to path
 sys.path.insert(0, str(Path(__file__).parent / "agent"))
@@ -31,7 +32,7 @@ SUBJECT_LABELS = {
 
 # Import agent modules after path setup
 try:
-    from recommendation_agent import RecommendationAgent, VideoInput, create_recommendation_report
+    from recommendation_agent import VideoInput, create_recommendation_report
     AGENT_AVAILABLE = True
 except ImportError as e:
     AGENT_AVAILABLE = False

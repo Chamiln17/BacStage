@@ -1,0 +1,54 @@
+site_name: BacStage
+site_description: What makes a Bac lesson land on YouTube. Engagement prediction and an AI coach for Algerian educators.
+repo_url: https://github.com/Chamiln17/BacStage
+repo_name: Chamiln17/BacStage
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Case study: case-study.md
+  - Architecture: architecture.md
+  - Engagement model: model-card.md
+  - Creator coach: coach.md
+  - Data and ethics: data.md
+  - Glossary: glossary.md
+  - Decisions:
+      - "ADR 0001: publish code only": adr/0001-publish-code-only.md
+  - "Research: publishing YouTube data": research/youtube-data-publishing.md

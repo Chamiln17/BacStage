@@ -32,4 +32,4 @@ Either a caption transcript or a Whisper transcript. Use the specific term when 
 A transcript with real spoken text: non-empty and not a dump of YouTube page code. Only valid transcripts count toward `has_transcript` and produce transcript features.
 
 **Private archive**
-The off-repo, never-public store of transcripts, trained models, and video IDs. See [ADR 0001](docs/adr/0001-publish-code-only.md).
+The off-repo, never-public store of transcripts, trained models, and video IDs (ADR 0001).

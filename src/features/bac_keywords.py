@@ -215,22 +215,22 @@ def count_pedagogical_markers(text: str) -> int:
 def get_exam_keyword_intensity(text: str, word_count: int = None) -> float:
     """
     Calculate normalized intensity of exam-related keywords.
-    
+
     Args:
         text: Input text
         word_count: Optional pre-calculated word count
-        
+
     Returns:
         Intensity score (0.0 to 1.0+)
     """
     if not text:
         return 0.0
-    
+
     if word_count is None:
         word_count = len(text.split())
-    
+
     if word_count == 0:
         return 0.0
-    
+
     bac_count = count_bac_markers(text)
     return bac_count / word_count

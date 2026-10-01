@@ -1,289 +1,93 @@
-# Algerian Bac Educational Video Engagement Analysis
+# BacStage
 
-End-to-end machine learning project for analyzing YouTube engagement patterns in Algerian Bac educational content.
+**Go backstage on what makes Bac lessons work on YouTube.**
 
-## Quick Start
+BacStage studies 9,801 Algerian Baccalaureate (3AS) lessons on YouTube. It predicts how much students will engage with a lesson before it is published, and gives the teacher concrete, data-backed advice in Arabic.
 
-### 1. Setup
+[![CI](https://github.com/Chamiln17/BacStage/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamiln17/BacStage/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-site-indigo)](https://chamiln17.github.io/BacStage/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 
-```bash
-# Create virtual environment and install dependencies using uv
-uv venv
-.venv\Scripts\activate  # On Windows (use source .venv/bin/activate on Linux/Mac)
-uv sync --all-extras
+> **بالعربية:** BacStage يحلّل دروس البكالوريا الجزائرية على يوتيوب، ويتوقّع تفاعل الطلاب مع الدرس قبل نشره، ويقدّم للأستاذ توصيات عملية مبنية على بيانات قرابة عشرة آلاف فيديو.
+>
+> **En français :** BacStage analyse les cours du Bac algérien sur YouTube, prédit l'engagement des élèves avant la publication d'une vidéo et donne à l'enseignant des conseils concrets, fondés sur près de dix mille vidéos.
 
-# Configure API key
-cp .env.example .env
-# Edit .env and add your YouTube Data API v3 key
+<!-- TODO: demo recording of the coach (GIF or video), showing the BacStage app end to end -->
+> 🎬 **Demo coming soon:** a recording of the coach scoring a planned lesson.
+
+## What it does
+
+| | Part | Result |
+| --- | --- | --- |
+| 🔎 | **Bac filter**: finds the real 3AS lessons among everything 36 channels publish, using grade markers, channel priors and discovered terms | 9,801 of 19,042 videos kept · precision **0.94**, recall **0.82** on hand-labelled videos |
+| 📈 | **Engagement model**: random forest over 171 features (text, transcript, AraBERT embeddings, channel statistics) | test **R² 0.70**, MAE 0.31 on 1,963 held-out lessons, with no leakage |
+| 🎓 | **Creator coach**: Streamlit app combining the prediction, retrieved best practices, a thumbnail check with Arabic OCR, and an LLM | prioritised recommendations in Arabic, in about 20 s |
+
+```mermaid
+flowchart LR
+    A[36 channels] --> B[Collect<br/>YouTube API] --> C[Bac filter] --> D[Features<br/>+ transcripts] --> E[Engagement model]
+    E --> F[Coach app]
+    G[Planned lesson] --> F --> H[Prediction + advice<br/>in Arabic]
 ```
 
-### 2. Prepare Channel Data
+## Highlights
 
-Create a CSV file with channel IDs in `data/raw/channels.csv`:
+- **Quota-smart collection.** Uploads playlists and batched requests cut API cost about 100×; refreshing 19,919 videos takes 435 of the 10,000 daily units.
+- **One feature pipeline for training and prediction.** It is fit on training videos only and scores a lesson that has no views yet. A test proves it never reads views, likes or comments.
+- **Honest evaluation.** The exploration notebook's 0.693 used features fitted on test videos too. The pipeline removes that leak and still scores 0.70 on held-out lessons.
+- **Built for Arabic.** AraBERT embeddings, Arabic curriculum keywords, Arabic OCR on thumbnails, and an Arabic coaching prompt.
+- **Published responsibly.** Code only: no YouTube data, transcripts or models, following YouTube's API terms ([why](docs/data.md)).
 
-```csv
-channel_id,channel_name,subjects
-UCxxxxxx,Channel Name,Math
-```
+## Quickstart
 
-### 3. Run the Pipeline
-
-```bash
-# Full pipeline with Bac filtering: collect + filter + engineer + analyze
-uv run python run_pipeline.py full-pipeline --channels data/raw/channels.csv --filter
-```
-
-Or run steps individually:
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.10+.
 
 ```bash
-# Collect data only
+git clone https://github.com/Chamiln17/BacStage.git
+cd BacStage
+uv sync --all-extras          # pipeline + dev tools + coach app
+cp .env.example .env          # add YOUTUBE_API_KEY (pipeline) and GROQ_API_KEY (coach)
+uv run pytest                 # offline test suite
+```
+
+Build your own dataset and model (the repository ships none, see [Data and ethics](docs/data.md)):
+
+```bash
 uv run python run_pipeline.py collect --channels data/raw/channels.csv
-
-# Apply data-driven Bac 3AS filter
 uv run python run_pipeline.py filter_data
-
-# Engineer features (from filtered data)
-uv run python run_pipeline.py engineer --input data/processed/videos_bac_only.csv
-
-# Quick analysis
-uv run python run_pipeline.py analyze
+uv run python run_pipeline.py transcripts --input data/processed/videos_bac_only.csv --output data/processed/transcripts.csv
+uv run python run_pipeline.py clean --transcripts data/processed/transcripts.csv
+uv run python run_pipeline.py train
 ```
 
-### 4. Explore Data
+Score a lesson before publishing it:
 
 ```bash
-jupyter notebook notebooks/
+echo '{"title": "مراجعة بكالوريا 2026: الدالة الأسية", "duration_sec": 1800, "subject": "Maths"}' > planned.json
+uv run python run_pipeline.py predict --input planned.json
+# {"engagement_score": ..., "engagement_category": "Low" | "Medium" | "High", "known_channel": false}
 ```
 
-## Project Structure
-
-```
-SIC/
-├── run_pipeline.py              # Unified CLI entry point
-├── README.md                    # This file
-├── QUICK_REFERENCE.md           # Quick commands reference
-├── pyproject.toml               # Project configuration
-├── config/
-│   └── filter_config.yaml       # Filter tuning parameters
-├── data/
-│   ├── README.md                # Data documentation
-│   ├── raw/                     # Raw data from collection
-│   │   ├── channels.csv         # Input: channel list with subjects
-│   │   ├── videos_metadata.csv  # Video data with snapshots
-│   │   ├── video_registry.csv   # Known video IDs
-│   │   └── channel_statistics.csv
-│   ├── processed/               # Filtered and engineered data
-│   │   ├── channel_priors.csv   # Auto-computed channel Bac ratios
-│   │   ├── tfidf_bac_terms.json # Auto-discovered Bac keywords
-│   │   ├── videos_bac_balanced.csv  # All videos with filter columns
-│   │   ├── videos_bac_only.csv  # Bac 3AS videos (for ML)
-│   │   └── videos_engineered.csv
-│   └── validation/              # Validation samples
-│       └── sample_for_manual_review.csv
-├── notebooks/                   # Jupyter notebooks
-│   └── 01_data_exploration.ipynb
-├── scripts/                     # Standalone utility scripts
-│   ├── 01_diagnostic_bac_markers.py
-│   ├── 02_build_channel_priors.py
-│   ├── 03_tfidf_keyword_discovery.py
-│   └── validate_filter.py
-├── src/                         # Source code
-│   ├── data/                    # Data collection
-│   │   ├── youtube_collector.py # YouTube API wrapper
-│   │   ├── video_registry.py    # Video ID registry
-│   │   ├── storage.py           # Raw JSON utilities
-│   │   └── collect.py           # Collection CLI
-│   └── features/                # Feature engineering & filtering
-│       ├── engineer.py
-│       ├── bac_filter_balanced.py  # Data-driven Bac filter
-│       └── build_features.py
-└── tests/                       # Unit tests (pytest)
-```
-
-## CLI Commands
-
-All operations use `run_pipeline.py`:
-
-| Command         | Description                                                     |
-| --------------- | --------------------------------------------------------------- |
-| `full-pipeline` | Run everything: collect + [filter] + clean + engineer + analyze |
-| `collect`       | Gather video metadata and channel statistics                    |
-| `filter_data`   | Apply data-driven Bac 3AS filter                                |
-| `clean`         | Clean and prepare data for feature engineering                  |
-| `engineer`      | Build ML features from raw data                                 |
-| `analyze`       | Quick stats on collected data                                   |
-
-### Common Options
-
-```bash
-# Full pipeline with filtering
---filter
-
-# Limit videos per channel
---max-videos 50
-
-# Set API quota limit
---max-quota 5000
-
-# Skip discovery (only update known videos)
---no-discover
-
-# Keep only latest snapshot per video
---mode dedupe
-
-# Include comment samples
---collect-comments
-```
-
-### Filtering Options (filter_data)
-
-```bash
-# Skip discovery if artifacts exist
---skip-discovery
-
-# Force re-run discovery
---force-discovery
-
-# Generate validation samples
---validate
-
-# Custom config file
---config config/filter_config.yaml
-```
-
-## Features
-
-### Data Collection (Quota-Optimized)
-
-- **Uploads Playlist Discovery**: 1 unit per 50 videos (vs 100 units with search.list)
-- **Batched Enrichment**: 50 videos per API request
-- **Video Registry**: Tracks known videos for incremental updates
-- **Snapshot Tracking**: Enables time-series analysis
-- **Channel Statistics**: Subscriber counts, view totals, etc.
-
-### Data-Driven Bac Filtering
-
-- **Channel Priors**: Automatically identifies Bac-heavy channels based on content
-- **TF-IDF Discovery**: Discovers high-signal Bac-associated terms from titles
-- **Balanced Rules**: Hard include/exclude with soft positives for ambiguous cases
-- **Minimal Maintenance**: ~30 grade markers, auto-updated priors and keywords
-
-### Data Cleaning
-
-- **Missing Value Imputation**: Fills `description` and `tags` with empty strings
-- **Transcript Flag**: Creates `has_transcript` boolean for downstream modeling
-- **Feature Imputation**: Sets transcript-derived features to 0 for videos without transcripts
-- **Type Validation**: Ensures dates are datetime, counts are integers
-
-### Feature Engineering
-
-- **Temporal**: Upload timing, video age, seasonal patterns
-- **Content**: Duration, title analysis, subject detection
-- **Engagement**: Like/comment ratios, engagement scores
-- **Channel**: Aggregated channel-level statistics
-
-## API Quota Efficiency
-
-YouTube Data API v3: 10,000 quota units per day
-
-| Operation              | Old Method      | New Method   | Savings  |
-| ---------------------- | --------------- | ------------ | -------- |
-| Discover 200 videos    | 400 units       | 4 units      | 100x     |
-| Enrich 200 videos      | 200 units       | 4 units      | 50x      |
-| **Total (4 channels)** | **2,400 units** | **24 units** | **100x** |
-
-This enables daily refreshes within the quota limit.
-
-## Data Schema
-
-### videos_metadata.csv
-- `video_id`, `title`, `description`, `publish_date`
-- `channel_id`, `channel_title`, `category_id`
-- `duration_sec`, `view_count`, `like_count`, `comment_count`
-- `snapshot_date`: Enables time-series tracking
-- `run_id`: Links to collection run
-
-### videos_bac_balanced.csv (after filtering)
-Additional filter columns:
-- `is_bac_3as`: Boolean - is this a Bac 3AS video?
-- `filter_category`: bac_3as | non_bac | unknown | bac_3as_ambiguous
-- `filter_confidence`: 0-1 confidence score
-- `filter_reason`: Explanation of decision
-- `subject`: From channels.csv mapping
-
-### videos_engineered.csv
-Additional ML features:
-- `days_since_publish`, `publish_hour`, `is_evening_upload`
-- `title_length`, `subject`, `is_exam_focused`, `tag_count`
-- `like_ratio`, `engagement_score`, `engagement_category`
-- `channel_video_count`, `channel_avg_views`
-
-## Development
-
-### Running Tests
-
-```bash
-uv run pytest
-uv run pytest -v  # Verbose
-uv run pytest --cov=src  # With coverage
-```
-
-### Code Quality
-
-```bash
-uv run black src/ tests/
-uv run ruff check src/ tests/
-uv run mypy src/
-```
+Run the coach: `uv run streamlit run app.py` (setup in [Creator coach](docs/coach.md)).
 
 ## Documentation
 
-- **README.md** - Project overview (this file)
-- **QUICK_REFERENCE.md** - Quick commands and workflows
-- **New_Filtering_Guide.md** - Data-driven filtering strategy details
-- **data/README.md** - Data directory documentation
-- **config/filter_config.yaml** - Filter tuning parameters
+The full docs are at **[chamiln17.github.io/BacStage](https://chamiln17.github.io/BacStage/)**:
 
-## End-to-End Pipeline Workflow
+- [Case study](docs/case-study.md): the story, the leak we found, what we learned
+- [Architecture](docs/architecture.md): the pipeline, the filter, the design choices
+- [Engagement model card](docs/model-card.md): inputs, metrics, limitations
+- [Creator coach](docs/coach.md): how the app works and how to run it
+- [Data and ethics](docs/data.md): what is (not) published and why
+- [Glossary](CONTEXT.md) and [decisions](docs/adr/)
 
-The complete data pipeline follows these stages:
+The notebooks in `notebooks/` are the original exploration and model comparison. They predate the current pipeline API, and their results are summarised in the [model card](docs/model-card.md).
 
-```
-Collect → Filter → Clean → Engineer → Model
-```
+## Team
 
-### Step 1: Collect Raw Data
-Fetches video metadata and channel statistics from YouTube API.
-```bash
-uv run python run_pipeline.py collect --channels data/raw/channels.csv
-```
-
-### Step 2: Filter to Bac 3AS Content
-Applies data-driven filtering to identify Bac-relevant videos.
-```bash
-uv run python run_pipeline.py filter_data
-```
-**Output**: `data/processed/videos_bac_only.csv`
-
-### Step 3: Clean Data
-Handles missing values, creates `has_transcript` flag, validates types.
-```bash
-uv run python run_pipeline.py clean
-```
-**Output**: `data/cleaned/videos_cleaned.csv`, `data/cleaned/transcripts_clean.csv`
-
-### Step 4: Engineer Features
-Builds ML-ready features including transcript analysis.
-```bash
-uv run python run_pipeline.py engineer --input data/cleaned/videos_cleaned.csv
-```
-**Output**: `data/processed/videos_engineered.csv`
-
-### Step 5: Train Model
-(Coming soon)
-
----
+Built by **Chamel Nadir Bouacha**, **Abdelkebir Achraf**, **Nibras Norelislam Bouzidi** and **lahcenbcf**.
 
 ## License
 
-MIT
+[MIT](LICENSE). The license covers the code. YouTube content and data belong to their owners and are not included.

@@ -27,10 +27,10 @@ from typing import Optional
 def cmd_collect(args: argparse.Namespace) -> int:
     """Run data collection."""
     from src.data.collect import main as collect_main
-    
+
     # Build sys.argv for the collect module
     argv = ["collect", "--channels", str(args.channels)]
-    
+
     if args.output:
         argv.extend(["--output", str(args.output)])
     if args.max_videos:
@@ -47,7 +47,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
         argv.append("--collect-comments")
     if args.no_backup:
         argv.append("--no-backup")
-    
+
     sys.argv = argv
     try:
         collect_main()
@@ -59,6 +59,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
 def _load_videos_with_transcripts(videos_path: Path, transcripts_path: Optional[Path]):
     """Load videos and attach `transcript_text` by video_id when a transcripts CSV exists."""
     import logging
+
     import pandas as pd
 
     logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ def _load_videos_with_transcripts(videos_path: Path, transcripts_path: Optional[
 def cmd_engineer(args: argparse.Namespace) -> int:
     """Export per-video engineered features (for notebooks and analysis)."""
     import logging
+
     from src.features.engineer import engineered_export
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -103,62 +105,63 @@ def cmd_transcripts(args: argparse.Namespace) -> int:
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Quick analysis of collected data."""
-    import pandas as pd
     import sys
-    
+
+    import pandas as pd
+
     # Fix Windows console encoding for Unicode
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    
+
     videos_path = args.videos
     channels_path = args.channels
-    
+
     print("=" * 60)
     print("COLLECTION ANALYSIS")
     print("=" * 60)
-    
+
     # Analyze videos
     if videos_path.exists():
         df = pd.read_csv(videos_path)
         print(f"\n[Videos] {videos_path}")
         print(f"   Total records: {len(df)}")
-        
+
         if "video_id" in df.columns:
             print(f"   Unique videos: {df['video_id'].nunique()}")
-        
+
         if "channel_title" in df.columns:
-            print(f"\n   Videos per channel:")
+            print("\n   Videos per channel:")
             for channel, count in df["channel_title"].value_counts().items():
                 print(f"     - {channel}: {count}")
-        
+
         if "publish_date" in df.columns:
             df["publish_date"] = pd.to_datetime(df["publish_date"], format="ISO8601", utc=True)
-            print(f"\n   Date range:")
+            print("\n   Date range:")
             print(f"     Oldest: {df['publish_date'].min()}")
             print(f"     Newest: {df['publish_date'].max()}")
-        
+
         if "snapshot_date" in df.columns:
             print(f"\n   Snapshots: {df['snapshot_date'].nunique()}")
-        
+
         if "view_count" in df.columns:
-            print(f"\n   View statistics:")
+            print("\n   View statistics:")
             print(f"     Total views: {df['view_count'].sum():,}")
             print(f"     Average views: {df['view_count'].mean():,.0f}")
             print(f"     Max views: {df['view_count'].max():,}")
     else:
         print(f"\n[!] Videos file not found: {videos_path}")
-    
+
     # Analyze channel stats
     if channels_path.exists():
         ch_df = pd.read_csv(channels_path)
         print(f"\n[Channel Stats] {channels_path}")
         print(f"   Channels: {len(ch_df)}")
-        
+
         if "subscriber_count" in ch_df.columns:
             print(f"   Total subscribers: {ch_df['subscriber_count'].sum():,}")
     else:
         print(f"\n[!] Channel stats file not found: {channels_path}")
-    
+
     # Check registry
     registry_path = Path("data/raw/video_registry.csv")
     if registry_path.exists():
@@ -167,7 +170,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"   Known videos: {len(reg_df)}")
         if "channel_id" in reg_df.columns:
             print(f"   Channels tracked: {reg_df['channel_id'].nunique()}")
-    
+
     # Check engineered features
     features_path = Path("data/processed/videos_engineered.csv")
     if features_path.exists():
@@ -175,7 +178,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"\n[Engineered Features] {features_path}")
         print(f"   Records: {len(feat_df)}")
         print(f"   Features: {len(feat_df.columns)}")
-    
+
     print("\n" + "=" * 60)
     return 0
 
@@ -185,6 +188,7 @@ def cmd_filter_data(args: argparse.Namespace) -> int:
     import json
     import logging
     from datetime import datetime
+
     import pandas as pd
 
     from src.features.bac_filter_balanced import (
@@ -269,7 +273,7 @@ def cmd_filter_data(args: argparse.Namespace) -> int:
 def cmd_clean(args: argparse.Namespace) -> int:
     """Run data cleaning pipeline."""
     from src.data.clean_data import clean_pipeline
-    
+
     return clean_pipeline(
         videos_path=args.videos,
         transcripts_path=args.transcripts,
@@ -279,23 +283,23 @@ def cmd_clean(args: argparse.Namespace) -> int:
 def cmd_full_pipeline(args: argparse.Namespace) -> int:
     """Run the full pipeline: collect -> [filter] -> engineer -> analyze."""
     import logging
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
-    
+
     logger.info("=" * 60)
     logger.info("FULL PIPELINE EXECUTION")
     logger.info("=" * 60)
-    
+
     step_num = 1
-    
+
     # Step 1: Collect
     logger.info(f"\n>>> STEP {step_num}: DATA COLLECTION <<<\n")
     step_num += 1
-    
+
     collect_args = argparse.Namespace(
         channels=args.channels,
         output=Path("data/raw/videos_metadata.csv"),
@@ -307,17 +311,17 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
         collect_comments=args.collect_comments,
         no_backup=False,
     )
-    
+
     result = cmd_collect(collect_args)
     if result != 0:
         logger.error("Collection failed. Aborting pipeline.")
         return result
-    
+
     # Step 2: Filter (optional)
     if getattr(args, "filter", False):
         logger.info(f"\n>>> STEP {step_num}: DATA-DRIVEN FILTERING <<<\n")
         step_num += 1
-        
+
         filter_args = argparse.Namespace(
             input=Path("data/raw/videos_metadata.csv"),
             channels=args.channels,
@@ -329,46 +333,46 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
             dedupe=True,
             no_progress=False,
         )
-        
+
         result = cmd_filter_data(filter_args)
         if result != 0:
             logger.error("Filtering failed. Continuing with unfiltered data.")
-    
+
     # Step 3: Engineer
     logger.info(f"\n>>> STEP {step_num}: FEATURE ENGINEERING <<<\n")
     step_num += 1
-    
+
     # Use filtered data if filtering was done
     if getattr(args, "filter", False):
         input_for_engineer = Path("data/cleaned/videos_cleaned.csv")
     else:
         input_for_engineer = Path("data/cleaned/videos_cleaned.csv") # Default to cleaned
-    
+
     engineer_args = argparse.Namespace(
         input=input_for_engineer,
         output=Path("data/processed/videos_engineered.csv"),
         transcripts=Path("data/cleaned/transcripts_clean.csv"),
     )
-    
+
     result = cmd_engineer(engineer_args)
     if result != 0:
         logger.error("Feature engineering failed.")
         return result
-    
+
     # Step 4: Analyze
     logger.info(f"\n>>> STEP {step_num}: ANALYSIS <<<\n")
-    
+
     analyze_args = argparse.Namespace(
         videos=Path("data/raw/videos_metadata.csv"),
         channels=Path("data/raw/channel_statistics.csv"),
     )
-    
+
     cmd_analyze(analyze_args)
-    
+
     logger.info("\n" + "=" * 60)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 60)
-    
+
     return 0
 
 
@@ -376,7 +380,9 @@ def cmd_full_pipeline(args: argparse.Namespace) -> int:
 def cmd_train(args: argparse.Namespace) -> int:
     """Train the engagement model and save models/model.joblib."""
     import logging
+
     import pandas as pd
+
     from src.models.train_model import train
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -413,7 +419,9 @@ def cmd_predict(args: argparse.Namespace) -> int:
     """Score planned videos from a JSON object, a JSON list, or a CSV."""
     import json
     import logging
+
     import pandas as pd
+
     from src.models.predict_model import EngagementPredictor
 
     logger = logging.getLogger(__name__)
@@ -452,7 +460,7 @@ def main() -> int:
 Commands:
   collect        Collect video metadata and channel statistics
   filter_data    Apply data-driven Bac 3AS filter
-  engineer       Build ML features from raw data  
+  engineer       Build ML features from raw data
   analyze        Quick stats on collected data
   full-pipeline  Run everything (collect -> [filter] -> engineer -> analyze)
 
@@ -479,9 +487,9 @@ Examples:
   uv run python run_pipeline.py analyze
         """,
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
+
     # ===== COLLECT =====
     collect_parser = subparsers.add_parser(
         "collect", help="Collect video metadata and channel statistics"
@@ -523,7 +531,7 @@ Examples:
         help="Skip backup creation"
     )
     collect_parser.set_defaults(func=cmd_collect)
-    
+
     # ===== ENGINEER =====
     engineer_parser = subparsers.add_parser(
         "engineer", help="Build ML features from raw data"
@@ -541,7 +549,7 @@ Examples:
         help="Transcripts CSV joined by video_id (default: data/cleaned/transcripts_clean.csv)"
     )
     engineer_parser.set_defaults(func=cmd_engineer)
-    
+
     # ===== TRANSCRIPTS =====
     transcripts_parser = subparsers.add_parser(
         "transcripts", help="Collect YouTube transcripts"
@@ -559,7 +567,7 @@ Examples:
         help="Seconds to wait between videos (default: 2)"
     )
     transcripts_parser.set_defaults(func=cmd_transcripts)
-    
+
     # ===== ANALYZE =====
     analyze_parser = subparsers.add_parser(
         "analyze", help="Quick stats on collected data"
@@ -573,7 +581,7 @@ Examples:
         help="Path to channel statistics CSV"
     )
     analyze_parser.set_defaults(func=cmd_analyze)
-    
+
     # ===== FILTER_DATA =====
     filter_parser = subparsers.add_parser(
         "filter_data", help="Apply data-driven Bac 3AS filter"
@@ -615,7 +623,7 @@ Examples:
         help="Disable progress bar"
     )
     filter_parser.set_defaults(func=cmd_filter_data)
-    
+
     # ===== CLEAN =====
     clean_parser = subparsers.add_parser(
         "clean", help="Clean and prepare data for feature engineering"
@@ -633,7 +641,7 @@ Examples:
         help="Output directory for cleaned data"
     )
     clean_parser.set_defaults(func=cmd_clean)
-    
+
     # ===== FULL-PIPELINE =====
     full_parser = subparsers.add_parser(
         "full-pipeline", help="Run collect -> filter -> engineer -> analyze"
@@ -663,7 +671,7 @@ Examples:
         help="Include Bac 3AS filtering step"
     )
     full_parser.set_defaults(func=cmd_full_pipeline)
-    
+
     # ===== TRAIN =====
     train_parser = subparsers.add_parser(
         "train", help="Train engagement prediction model"
@@ -721,15 +729,15 @@ Examples:
         help="Output format (default: json)"
     )
     predict_parser.set_defaults(func=cmd_predict)
-    
+
     # Parse and execute
 
     args = parser.parse_args()
-    
+
     if args.command is None:
         parser.print_help()
         return 0
-    
+
     return args.func(args)
 
 

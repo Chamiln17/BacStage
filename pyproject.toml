@@ -64,6 +64,9 @@ app = [
     "sentence-transformers>=2.2.0",
     "streamlit>=1.28.0",
 ]
+whisper = [
+    "openai-whisper>=20240930",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Lint
+        run: uv run ruff check src tests app.py agent run_pipeline.py
+      - name: Test
+        # test_embeddings downloads AraBERT (~500 MB); everything else runs offline.
+        run: uv run pytest --ignore=tests/test_embeddings.py
