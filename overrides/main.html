@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {# Link previews (LinkedIn, X, Slack): one card for every page. #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BacStage">
+  <meta property="og:title" content="{{ page.title ~ ' - ' if page and page.title and not page.is_homepage }}BacStage">
+  <meta property="og:description" content="{{ config.site_description }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="https://chamiln17.github.io/BacStage/assets/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://chamiln17.github.io/BacStage/assets/social-preview.png">
+{% endblock %}
