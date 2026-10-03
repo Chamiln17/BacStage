@@ -38,6 +38,8 @@ sequenceDiagram
 
 ## Example
 
+![The coach scoring a planned Maths lesson](assets/demo.gif)
+
 For the planned lesson *"مراجعة بكالوريا 2026: الدالة الأسية"* (Maths, 30 minutes, no channel given), the coach returned:
 
 > **التفاعل المتوقع (نموذج التعلم الآلي):** متوسط (الثلث الأوسط مقارنة بفيديوهات التدريب، درجة 2.67)

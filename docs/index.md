@@ -4,6 +4,8 @@
 
 BacStage studies 9,801 Algerian Baccalaureate (3AS) lessons on YouTube, predicts how much students will engage with a lesson before it is published, and gives the teacher concrete advice in Arabic.
 
+![BacStage coach: a planned Maths lesson is scored and coached](assets/demo.gif)
+
 <div class="grid cards" markdown>
 
 - **[Case study](case-study.md)**: the story from 19,919 videos to a coach, including the leak we found and fixed.

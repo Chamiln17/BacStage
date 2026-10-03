@@ -13,8 +13,7 @@ BacStage studies 9,801 Algerian Baccalaureate (3AS) lessons on YouTube. It predi
 >
 > **En français :** BacStage analyse les cours du Bac algérien sur YouTube, prédit l'engagement des élèves avant la publication d'une vidéo et donne à l'enseignant des conseils concrets, fondés sur près de dix mille vidéos.
 
-<!-- TODO: demo recording of the coach (GIF or video), showing the BacStage app end to end -->
-> 🎬 **Demo coming soon:** a recording of the coach scoring a planned lesson.
+![BacStage coach: a planned Maths lesson is scored and coached](docs/assets/demo.gif)
 
 ## What it does
 

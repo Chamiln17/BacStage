@@ -12,6 +12,7 @@ The agent synthesizes all inputs into clear, prioritized recommendations.
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -535,6 +536,8 @@ class RecommendationAgent:
         )
 
         response_text = chat_completion.choices[0].message.content
+        # The LLM uses <br> for line breaks inside Markdown tables; Markdown shows them as text.
+        response_text = re.sub(r"\s*<br\s*/?>\s*", " ", response_text or "", flags=re.IGNORECASE)
 
         # 7. Structure the output
         result = {
